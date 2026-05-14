@@ -5,6 +5,7 @@
     "outDir": "out",
     "rootDir": "./",
     "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "strict": true,

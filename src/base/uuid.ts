@@ -1,54 +1,52 @@
-const _UUIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const _UUIDPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUUID(value: string): boolean {
-    return _UUIDPattern.test(value);
+  return _UUIDPattern.test(value);
 }
 
-
 export const generateUuid = (function (): () => string {
-    console.log("come in")
-    if (typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID.bind(crypto)
-    }
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID.bind(crypto);
+  }
 
-    
-    const _data = new Uint8Array(16)
-    const _hex: string[] = []
-    for (let i = 0; i < 256; i++) {
-        _hex.push(i.toString(16).padStart(2, '0'));
-    }
+  const _data = new Uint8Array(16);
+  const _hex: string[] = [];
+  for (let i = 0; i < 256; i++) {
+    _hex.push(i.toString(16).padStart(2, '0'));
+  }
 
-    return function generateUuid(): string {
-       // get data
-		crypto.getRandomValues(_data);
+  return function generateUuid(): string {
+    // get data
+    crypto.getRandomValues(_data);
 
-		// set version bits
-		_data[6] = (_data[6] & 0x0f) | 0x40;
-		_data[8] = (_data[8] & 0x3f) | 0x80;
+    // set version bits
+    _data[6] = (_data[6] & 0x0f) | 0x40;
+    _data[8] = (_data[8] & 0x3f) | 0x80;
 
-		// print as string
-		let i = 0;
-		let result = '';
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += '-';
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += '-';
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += '-';
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += '-';
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		result += _hex[_data[i++]];
-		return result;
-    }
-})()
+    // print as string
+    let i = 0;
+    let result = '';
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += '-';
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += '-';
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += '-';
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += '-';
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    result += _hex[_data[i++]];
+    return result;
+  };
+})();
