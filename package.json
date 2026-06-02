@@ -92,7 +92,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "installIcon": "build/icons/brain.ico",
       "shortcutName": "tty-kumo",
       "uninstallDisplayName": "tty-kumo"
     },
