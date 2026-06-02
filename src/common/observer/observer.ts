@@ -87,5 +87,4 @@ export function onObserverEvent<T>(type: ObserverEventType, callback: (data: T) 
 
 const Observer = onObserverEvent<unknown>(ObserverEventType.Add, (data) => {
   console.log('Observer Add:', data);
-  // console.log('Observer Add:', data);
 });
