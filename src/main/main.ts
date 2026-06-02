@@ -45,14 +45,12 @@ class Main {
   }
 }
 
-
-
 const createWindow = () => {
   Menu.setApplicationMenu(null);
 
   const win = new BrowserWindow({
-    width: 1000,
-    height: 800,
+    width: 1200,
+    height: 960,
     // fullscreen: true,
     // frame: false,
     transparent: true,

@@ -13,15 +13,13 @@ const App: React.FC = () => {
   }
   return (
     <div className="drag-region flex h-full w-full flex-col overflow-hidden">
-      <div className="sticky top-0 z-50 flex h-12 w-full items-center justify-end px-4">
+      <div className="sticky top-0 z-50 flex h-6 w-full items-center justify-end">
         <X onClick={clickExit} className="cursor-pointer" color="red" />
       </div>
 
-      {/* <div className="flex-1 overflow-hidden p-6">
-        <div className="h-full overflow-hidden rounded-2xl border border-default-200 bg-content1 shadow-sm">
-          
-        </div>
-      </div> */}
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full overflow-hidden rounded-2xl border border-default-200 bg-content1 shadow-sm"></div>
+      </div>
     </div>
   );
 };
