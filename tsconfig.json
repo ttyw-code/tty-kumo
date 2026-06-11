@@ -5,14 +5,14 @@
     "outDir": "out",
     "rootDir": "./",
     "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": "./",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    "baseUrl": "./",
     "paths": {
       "@/*": [
         "src/*"

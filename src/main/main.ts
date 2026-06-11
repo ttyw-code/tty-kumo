@@ -49,11 +49,11 @@ const createWindow = () => {
   Menu.setApplicationMenu(null);
 
   const win = new BrowserWindow({
-    width: 1200,
-    height: 960,
+    width: 960,
+    height: 800,
     // fullscreen: true,
     // frame: false,
-    transparent: true,
+    // transparent: true,
     resizable: false,
     webPreferences: {
       preload: getPreloadPath()!,
