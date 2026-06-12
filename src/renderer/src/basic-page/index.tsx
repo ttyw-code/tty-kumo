@@ -1,4 +1,4 @@
-import { Button, Divider } from '@heroui/react';
+import { Button, Separator } from '@heroui/react';
 import React, {
   forwardRef,
   useEffect,
@@ -37,8 +37,7 @@ const BasePage = forwardRef<HTMLDivElement, Props>((props, ref) => {
               size="sm"
               className="app-nodrag"
               isIconOnly
-              variant="light"
-              color={onTop ? 'primary' : 'default'}
+              variant={onTop ? 'tertiary' : 'ghost'}
               onPress={async () => {
                 console.log('click pin');
               }}
@@ -48,7 +47,7 @@ const BasePage = forwardRef<HTMLDivElement, Props>((props, ref) => {
           </div>
         </div>
 
-        <Divider />
+        <Separator />
       </div>
       <div className="content flex-1 min-h-0 overflow-y-auto custom-scrollbar">
         {props.children}
