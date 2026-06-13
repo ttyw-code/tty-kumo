@@ -52,8 +52,9 @@ const createWindow = () => {
     width: 960,
     height: 800,
     // fullscreen: true,
-    // frame: false,
-    // transparent: true,
+    frame: false,
+    transparent: true,
+    
     resizable: false,
     webPreferences: {
       preload: getPreloadPath()!,
@@ -95,6 +96,7 @@ const createWindow = () => {
 
   if (devServerUrl) {
     win.loadURL(devServerUrl);
+    win.webContents.openDevTools();
   } else {
     win.loadFile('out/renderer/index.html');
   }
