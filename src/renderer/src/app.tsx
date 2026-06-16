@@ -14,11 +14,11 @@ const App: React.FC = () => {
   }
   return (
     <div className="drag-region  h-full w-full  overflow-hidden flex  justify-start gap-1 bg-default-50 p-2">
-      <nav className={`h-full ${expanded ? 'w-50' : 'w-0'} overflow-hidden transition-all duration-300`}>
+      <nav className={`h-full ${expanded ? 'w-50 border-r' : 'w-0'} overflow-hidden transition-all duration-300 `}>
         <div className="flex flex-col gap-1 p-4 border-b whitespace-nowrap w-50">
           <div className="flex items-center gap-2 mb-6">
             <Avatar>
-              <Avatar.Fallback className='bg-lime-200'>B</Avatar.Fallback>
+              <Avatar.Fallback className='bg-lime-400'>B</Avatar.Fallback>
             </Avatar>
             <div className="flex flex-col gap-1">
               <span className="text-sm font-bold ">Bob</span>
@@ -40,11 +40,11 @@ const App: React.FC = () => {
         </div>
       </nav>
       <div className="h-full flex-1 overflow-hidden ">
-        <div className="flex items-center gap-2 p-2">
+        <div className="flex items-center gap-2 p-2 border-b">
           <button onClick={() => setExpanded(!expanded)} className="p-2 hover:bg-gray-300 hover:rounded-full hover:cursor-pointer">
             {expanded ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
           </button>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 ">
             <span className="text-sm font-bold ">Pro AI components showcase</span>
             <span className="text-xs text-gray-500">Updated Just now</span>
           </div>
