@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["./.opencode/plugins/ponytail.mjs"],
+  "instructions": [".opencode/rules/*.md"],
+  "permission": {
+    "edit": "allow",
+    "write": "allow",
+    "bash": "allow",
+    "git": "ask"
+  }
+}
