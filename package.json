@@ -39,6 +39,7 @@
     "tailwindcss": "^4.1.18",
     "vite": "^6.0.0",
     "vite-plugin-inspect": "^11.3.3",
+    "vite-plugin-oxc": "^0.0.4",
     "wait-on": "^7.2.0"
   },
   "dependencies": {
