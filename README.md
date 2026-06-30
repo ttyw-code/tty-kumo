@@ -1,6 +1,6 @@
 # tty-kumo
 
-轻量级示例桌面应用（Electron + Vite + React + TypeScript）。本项目用于演示如何使用现代前端工具链构建 Electron 桌面应用
+轻量级示例桌面应用（Electron + Vite + React + TypeScript）。
 
 ## 主要特性
 
@@ -8,7 +8,6 @@
 - 基于 Vite 的开发与构建流程（支持主进程与渲染进程）
 - 使用 React + TypeScript 构建渲染层 UI
 - Tailwind CSS 用于快速样式开发
-- 示例模块：五子棋 AI、番茄钟、Todo、LowDB Worker、IPC 示例
 
 ## 系统需求
 
@@ -24,7 +23,6 @@
 npm install
 ```
 
-如果在中国大陆下载 Electron 失败，先设置镜像：
 
 PowerShell：
 

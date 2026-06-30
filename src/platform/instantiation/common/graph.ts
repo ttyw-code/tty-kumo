@@ -12,13 +12,13 @@ export class Graph<T> {
 
     }
     roots(): Node<T>[] {
-        const ret: Node<T>[] = [];
+        const roots: Node<T>[] = [];
         for (const node of this._nodes.values()) {
             if (node.incoming.size === 0) {
-                ret.push(node);
+                roots.push(node);
             }
         }
-        return ret;
+        return roots;
     }
     insertEdge(from: T, to: T): void {
         const fromNode = this.lookupOrInsert(from);
