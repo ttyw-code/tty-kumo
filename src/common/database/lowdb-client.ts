@@ -3,19 +3,27 @@ import fs from 'fs';
 import path from 'path';
 import { Worker } from 'worker_threads';
 
-type WorkerRequestBase =
-  | { type: 'init'; payload: { path: string; }; }
-  | { type: 'put'; payload: { key: string; value: string; }; }
-  | { type: 'get'; payload: { key: string; }; }
-  | { type: 'del'; payload: { key: string; }; }
-  | { type: 'close'; };
+enum LowDbResponseType {
+  READY = 'ready',
+  RESULT = 'result',
+  ERROR = 'error',
+}
+
+enum LowDbRequestType {
+  INIT = 'init',
+  PUT = 'put',
+  GET = 'get',
+  DEL = 'del',
+  CLOSE = 'close',
+}
+
+type WorkerRequestBase = { type: LowDbRequestType; payload?: unknown; };
+
 
 type WorkerRequest = WorkerRequestBase & { requestId?: string; };
 
-type WorkerResponse =
-  | { type: 'ready'; }
-  | { type: 'result'; requestId?: string; payload?: unknown; }
-  | { type: 'error'; requestId?: string; error: string; };
+type WorkerResponse = { type: LowDbResponseType; requestId?: string; payload?: unknown; error?: string; };
+
 
 type PendingRequest = {
   resolve: (value: unknown) => void;
@@ -32,7 +40,7 @@ export class LowDbWorkerClient {
     this.worker = worker;
 
     this.worker.on('message', (message: WorkerResponse) => {
-      if (message.type === 'ready') {
+      if (message.type === LowDbResponseType.READY) {
         return;
       }
 
@@ -48,7 +56,7 @@ export class LowDbWorkerClient {
       clearTimeout(pending.timer);
       this.pending.delete(message.requestId);
 
-      if (message.type === 'error') {
+      if (message.type === LowDbResponseType.ERROR) {
         pending.reject(new Error(message.error));
         return;
       }
@@ -68,23 +76,23 @@ export class LowDbWorkerClient {
   }
 
   init(path: string, timeoutMs = 5000): Promise<void> {
-    return this.request({ type: 'init', payload: { path } }, timeoutMs).then(() => undefined);
+    return this.request({ type: LowDbRequestType.INIT, payload: { path } }, timeoutMs).then(() => undefined);
   }
 
   put(key: string, value: string, timeoutMs = 5000): Promise<void> {
-    return this.request({ type: 'put', payload: { key, value } }, timeoutMs).then(() => undefined);
+    return this.request({ type: LowDbRequestType.PUT, payload: { key, value } }, timeoutMs).then(() => undefined);
   }
 
   get(key: string, timeoutMs = 5000): Promise<string | null> {
-    return this.request({ type: 'get', payload: { key } }, timeoutMs) as Promise<string | null>;
+    return this.request({ type: LowDbRequestType.GET, payload: { key } }, timeoutMs) as Promise<string | null>;
   }
 
   del(key: string, timeoutMs = 5000): Promise<void> {
-    return this.request({ type: 'del', payload: { key } }, timeoutMs).then(() => undefined);
+    return this.request({ type: LowDbRequestType.DEL, payload: { key } }, timeoutMs).then(() => undefined);
   }
 
   close(timeoutMs = 5000): Promise<void> {
-    return this.request({ type: 'close' }, timeoutMs).then(() => undefined);
+    return this.request({ type: LowDbRequestType.CLOSE }, timeoutMs).then(() => undefined);
   }
 
   private request(message: WorkerRequestBase, timeoutMs: number): Promise<unknown> {
