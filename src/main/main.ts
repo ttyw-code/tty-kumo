@@ -2,12 +2,14 @@ import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { generateUuid } from '@/base/uuid';
-import { getLowDbWorker, type LowDbWorkerClient } from '../common/database/lowdb-client';
+import { launchWorker } from './database/worker-launcher';
+import { WorkerPersister } from './database/persister';
+import type { DatabasePersister } from './database/types';
 import { createTray } from '@/main/tray';
 
 class MainApplication {
   private mainWindow: BrowserWindow | null = null;
-  private lowDbWorker: LowDbWorkerClient | null = null;
+  private db: DatabasePersister | null = null;
 
   start(): void {
     if (!app.requestSingleInstanceLock()) {
@@ -47,15 +49,16 @@ class MainApplication {
 
   private async initApp(): Promise<void> {
     const uuid = generateUuid();
-    console.log('App UUID:', uuid);
-
-    this.lowDbWorker = getLowDbWorker();
     const dbPath = path.join(app.getPath('userData'), 'mydb');
     fs.mkdirSync(dbPath, { recursive: true });
 
     try {
-      await this.lowDbWorker?.init(dbPath);
+      const worker = launchWorker();
+      this.db = new WorkerPersister(worker);
+      await this.db.init(dbPath);
       console.log('DB worker ready');
+      await this.db.put('app_uuid', uuid);
+      console.log('App UUID stored in DB:', await this.db.get('app_uuid'));
     } catch (err) {
       console.error('DB init failed:', err);
     }

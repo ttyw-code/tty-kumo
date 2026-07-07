@@ -16,7 +16,7 @@ export default defineConfig({
       entry: {
         main: path.resolve(__dirname, 'src/main/main.ts'),
         preload: path.resolve(__dirname, 'src/main/preload.ts'),
-        worker: path.resolve(__dirname, 'src/common/database/lowdb-worker.ts'),
+        worker: path.resolve(__dirname, 'src/main/database/lowdb-worker.ts'),
       },
       formats: ['cjs'],
       fileName: (_format, entryName) => `${entryName}.cjs`,
