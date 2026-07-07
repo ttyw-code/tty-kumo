@@ -1,196 +1,143 @@
 import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { getLowDbWorker, type LowDbWorkerClient } from '../common/database/lowdb-client';
 import { generateUuid } from '@/base/uuid';
-import { createTray } from './tray';
+import { getLowDbWorker, type LowDbWorkerClient } from '../common/database/lowdb-client';
+import { createTray } from '@/main/tray';
 
-let lowDbWorker: LowDbWorkerClient | null = null;
-let mainWindow: BrowserWindow | null = null;
-let trayInstance: Electron.Tray | null = null;
-
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-
-if (!hasSingleInstanceLock) {
-  app.quit();
-  process.exit(0);
-}
-
-app.on('second-instance', () => {
-  const allWindows = BrowserWindow.getAllWindows();
-  if (allWindows.length === 0) {
-    return;
-  }
-  const mainWindow = allWindows[0];
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-  mainWindow.focus();
-});
-
-class Main {
+class MainApplication {
+  private mainWindow: BrowserWindow | null = null;
+  private lowDbWorker: LowDbWorkerClient | null = null;
 
   start(): void {
-    try {
-      this.startup();
+    if (!app.requestSingleInstanceLock()) {
+      app.quit();
+      process.exit(0);
+    }
 
+    this.registerListeners();
+    app.whenReady().then(() => this.init());
+  }
+
+  private registerListeners(): void {
+    app.on('second-instance', () => {
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+        this.mainWindow.focus();
+      }
+    });
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        this.createWindow();
+      }
+    });
+  }
+
+  private async init(): Promise<void> {
+    try {
+      await this.initApp();
+      this.createWindow();
+      this.createTray();
     } catch (error) {
-      console.error('Application startup failed:', error);
+      console.error('Startup failed:', error);
       app.exit(1);
     }
   }
 
-  private async startup(): Promise<void> {
-    return;
+  private async initApp(): Promise<void> {
+    const uuid = generateUuid();
+    console.log('App UUID:', uuid);
+
+    this.lowDbWorker = getLowDbWorker();
+    const dbPath = path.join(app.getPath('userData'), 'mydb');
+    fs.mkdirSync(dbPath, { recursive: true });
+
+    try {
+      await this.lowDbWorker?.init(dbPath);
+      console.log('DB worker ready');
+    } catch (err) {
+      console.error('DB init failed:', err);
+    }
+
+    this.registerIpcHandlers();
   }
-}
 
-const createWindow = () => {
-  Menu.setApplicationMenu(null);
+  private getPreloadPath(): string | null {
+    const root = app.isPackaged ? app.getAppPath() : process.cwd();
+    const preload = path.join(root, 'out/src/main/preload.cjs');
+    if (!fs.existsSync(preload)) {
+      console.warn('Preload not found:', preload);
+      return null;
+    }
+    return preload;
+  }
 
-  const win = new BrowserWindow({
-    width: 960,
-    height: 800,
-    // fullscreen: true,
-    frame: false,
-    transparent: true,
-    
-    resizable: false,
-    webPreferences: {
-      preload: getPreloadPath()!,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
+  private createWindow(): void {
+    Menu.setApplicationMenu(null);
 
-  win.webContents.setWindowOpenHandler(() => {
-    return { action: 'deny' };
-  });
-
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-  const allowedOrigin = devServerUrl ? new URL(devServerUrl).origin : null;
-
-  win.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file://')) {
+    const preloadPath = this.getPreloadPath();
+    if (!preloadPath) {
+      console.error('Cannot create window: preload missing');
       return;
     }
 
-    if (allowedOrigin) {
-      try {
-        if (new URL(url).origin === allowedOrigin) {
-          return;
-        }
-      } catch {
-        event.preventDefault();
-        return;
-      }
+    const win = new BrowserWindow({
+      width: 960,
+      height: 800,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      webPreferences: {
+        preload: preloadPath,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
+
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+
+    const devUrl = process.env.VITE_DEV_SERVER_URL;
+    if (devUrl) {
+      const allowedOrigin = new URL(devUrl).origin;
+      win.webContents.on('will-navigate', (e, url) => {
+        if (url.startsWith('file://')) return;
+        try {
+          if (new URL(url).origin === allowedOrigin) return;
+        } catch { /* malformed url */ }
+        e.preventDefault();
+      });
+      win.loadURL(devUrl);
+      win.webContents.openDevTools();
+    } else {
+      win.loadFile('out/renderer/index.html');
     }
 
-    event.preventDefault();
-  });
-
-  win.webContents.on('will-attach-webview', (event) => {
-    event.preventDefault();
-  });
-
-  if (devServerUrl) {
-    win.loadURL(devServerUrl);
-    win.webContents.openDevTools();
-  } else {
-    win.loadFile('out/renderer/index.html');
+    this.mainWindow = win;
   }
 
-  mainWindow = win;
-};
+  private createTray(): void {
+    createTray(() => this.showWindow());
+  }
 
-function showWindow() {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
-    }
-    mainWindow.show();
-    mainWindow.focus();
+  private showWindow(): void {
+    if (!this.mainWindow) return;
+    if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+    this.mainWindow.show();
+    this.mainWindow.focus();
+  }
+
+  private registerIpcHandlers(): void {
+    ipcMain.handle('app:quit', () => app.quit());
+    ipcMain.handle('app:window:minimize', () => {
+      BrowserWindow.getFocusedWindow()?.minimize();
+    });
+    ipcMain.handle('app:window:close', () => {
+      BrowserWindow.getFocusedWindow()?.hide();
+    });
   }
 }
 
-app.whenReady().then(async () => {
-  await initApp();
-  createWindow();
-  trayInstance = createTray(showWindow);
-
-  app.on('activate', () => {
-    if (!_isExistWindow()) {
-      appMain.start();
-    }
-  });
-});
-
-
-function registerIpcHandlers(): void {
-  // Add IPC handlers here
-
-  // 退出应用
-  ipcMain.handle('app:quit', () => {
-    app.quit();
-  });
-
-  ipcMain.handle('app:window:minimize', () => {
-    const focused = BrowserWindow.getFocusedWindow();
-    if (focused) {
-      focused.minimize();
-    }
-  });
-
-  ipcMain.handle('app:window:close', () => {
-    const focused = BrowserWindow.getFocusedWindow();
-    if (focused) {
-      focused.hide();
-    }
-  });
-}
-
-
-function _isExistWindow(): boolean {
-  const allWindows = BrowserWindow.getAllWindows();
-  return allWindows.length > 0;
-}
-
-async function initApp(): Promise<void> {
-  const uuid = generateUuid();
-  console.log('Generated UUID:', uuid);
-  lowDbWorker = getLowDbWorker();
-  const dbPath = path.join(app.getPath('userData'), 'mydb');
-  fs.mkdirSync(dbPath, { recursive: true });
-  try {
-    await lowDbWorker?.init(dbPath);
-    console.log('LowDB worker initialized');
-    await lowDbWorker?.put('firstKey', 'Hello, LowDB!');
-    const value = await lowDbWorker?.get('firstKey');
-    console.log('Value from LowDB:', value);
-  } catch (error) {
-    console.error('Failed to initialize LowDB worker:', error);
-  }
-  registerIpcHandlers();
-}
-
-
-function getPreloadPath(): string | null {
-  const appRoot = app.isPackaged ? app.getAppPath() : process.cwd();
-  const preloadCandidates = [
-    path.join(appRoot, 'out/src/main/preload.cjs'),
-  ];
-  const preloadPath = preloadCandidates.find((candidate) => fs.existsSync(candidate));
-  if (!preloadPath) {
-    console.warn('Preload file not found. Tried:', preloadCandidates);
-  }
-  return preloadPath || null;
-}
-
-// Entry point of the application
-// Create Main instance and start the application
-const appMain = new Main();
-appMain.start();
-
-
-
+new MainApplication().start();

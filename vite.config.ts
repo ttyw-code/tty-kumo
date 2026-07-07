@@ -11,10 +11,10 @@ export default defineConfig({
   base: './',
   plugins: [
     oxc({
-      transform: {
-      },
+      transform: {},
       minify: {},
       resolve: {},
+      reactRefresh: false,
     }),
     react(), inspect()],
   logLevel: 'error',
