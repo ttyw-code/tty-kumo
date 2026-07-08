@@ -3,13 +3,13 @@ import path from 'path';
 import fs from 'fs';
 import { generateUuid } from '@/base/uuid';
 import { launchWorker } from './database/worker-launcher';
-import { WorkerPersister } from './database/persister';
-import type { DatabasePersister } from './database/types';
+import { DBPersister } from './database/persister';
+import type { IDBPersister } from './database/types';
 import { createTray } from '@/main/tray';
 
 class MainApplication {
   private mainWindow: BrowserWindow | null = null;
-  private db: DatabasePersister | null = null;
+  private db: IDBPersister | null = null;
 
   start(): void {
     if (!app.requestSingleInstanceLock()) {
@@ -54,7 +54,7 @@ class MainApplication {
 
     try {
       const worker = launchWorker();
-      this.db = new WorkerPersister(worker);
+      this.db = new DBPersister(worker);
       await this.db.init(dbPath);
       console.log('DB worker ready');
       await this.db.put('app_uuid', uuid);
