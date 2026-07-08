@@ -1,5 +1,5 @@
 import { Worker } from 'worker_threads';
-import { type DatabasePersister, DbError } from '@/main/database/types';
+import { type IDBPersister, DBError } from '@/main/database/types';
 
 enum ResponseType {
   READY = 'ready',
@@ -25,7 +25,7 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
-export class WorkerPersister implements DatabasePersister {
+export class DBPersister implements IDBPersister {
   private worker: Worker;
   private pending = new Map<string, PendingRequest>();
   private requestCounter = 0;
@@ -105,7 +105,7 @@ export class WorkerPersister implements DatabasePersister {
 }
 
 function parseWorkerError(raw: string | undefined): Error {
-  if (!raw) return new DbError('Unknown worker error');
+  if (!raw) return new DBError('Unknown worker error');
   try {
     const parsed = JSON.parse(raw) as {
       message?: string;
@@ -113,7 +113,7 @@ function parseWorkerError(raw: string | undefined): Error {
       errno?: number;
       path?: string;
     };
-    return new DbError(parsed.message ?? 'Worker error', parsed.code, parsed.path, parsed.errno);
+    return new DBError(parsed.message ?? 'Worker error', parsed.code, parsed.path, parsed.errno);
   } catch {
     return new Error(raw);
   }

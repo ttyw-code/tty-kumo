@@ -1,4 +1,4 @@
-export class DbError extends Error {
+export class DBError extends Error {
   constructor(
     message: string,
     public readonly code?: string,
@@ -6,11 +6,11 @@ export class DbError extends Error {
     public readonly errno?: number,
   ) {
     super(message);
-    this.name = 'DbError';
+    this.name = 'DBError';
   }
 }
 
-export interface DatabasePersister {
+export interface IDBPersister {
   init(path: string): Promise<void>;
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;

@@ -5,16 +5,16 @@ import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 
 type WorkerMessage =
-  | { type: 'init'; payload: { path: string }; requestId?: string }
-  | { type: 'put'; payload: { key: string; value: string }; requestId?: string }
-  | { type: 'get'; payload: { key: string }; requestId?: string }
-  | { type: 'del'; payload: { key: string }; requestId?: string }
-  | { type: 'close'; requestId?: string };
+  | { type: 'init'; payload: { path: string; }; requestId?: string; }
+  | { type: 'put'; payload: { key: string; value: string; }; requestId?: string; }
+  | { type: 'get'; payload: { key: string; }; requestId?: string; }
+  | { type: 'del'; payload: { key: string; }; requestId?: string; }
+  | { type: 'close'; requestId?: string; };
 
 type WorkerResponse =
-  | { type: 'ready' }
-  | { type: 'result'; requestId?: string; payload?: unknown }
-  | { type: 'error'; requestId?: string; error: string };
+  | { type: 'ready'; }
+  | { type: 'result'; requestId?: string; payload?: unknown; }
+  | { type: 'error'; requestId?: string; error: string; };
 
 type DbData = {
   records: Record<string, string>;
