@@ -4,10 +4,12 @@
     "Emiiter",
     "heroui",
     "kumo",
+    "mihomo",
     "nodrag",
     "nsis",
     "Pomodoro",
-    "Switch"
+    "Switch",
+    "vsbuffer"
   ],
   "js/ts.tsdk.path": "node_modules\\typescript\\lib"
 }

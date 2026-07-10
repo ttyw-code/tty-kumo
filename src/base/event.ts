@@ -1,4 +1,4 @@
-import { DisposableStore, IDisposable } from './lifecycle';
+import { DisposableStore, IDisposable } from '@/base/lifecycle';
 
 type Listener<T> = (e: T) => void;
 

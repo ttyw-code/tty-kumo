@@ -1,4 +1,4 @@
-import { IDisposable } from '../../base/lifecycle';
+import { IDisposable } from '@/base/lifecycle';
 
 /**
  * 发布订阅模式
