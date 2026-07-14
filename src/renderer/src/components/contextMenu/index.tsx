@@ -22,6 +22,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   return createPortal(
     <>
       <div
+        data-testid="context-menu-backdrop"
         className="fixed inset-0 z-40"
         onClick={onClose}
         onMouseDown={onClose}
