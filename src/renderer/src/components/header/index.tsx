@@ -1,5 +1,11 @@
 import React from 'react';
-import { SquareX, PanelLeftClose, PanelLeftOpen, Sun, Moon } from 'lucide-react';
+import {
+  SquareX,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun,
+  Moon,
+} from 'lucide-react';
 import { useStore } from '@/renderer/src/store';
 
 interface HeaderProps {
@@ -13,7 +19,7 @@ const Header: React.FC<HeaderProps> = ({ onExit }) => {
   const toggleTheme = useStore((s) => s.toggleTheme);
 
   return (
-    <div className="flex items-center gap-2 p-2 border-b border-separator">
+    <div className="drag-region flex items-center gap-2 p-2 border-b border-separator">
       <button
         onClick={toggleExpanded}
         className="p-1 hover:bg-default-soft hover:rounded-full hover:cursor-pointer"

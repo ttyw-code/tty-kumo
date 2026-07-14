@@ -3,44 +3,78 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-html, body {
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    background: transparent;
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: transparent;
 }
 
 #root {
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    border-radius: 12px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 [data-overlay-container='true'] {
-    padding: 10px;
-    height: 100%;
-    width: 100%;
-    -webkit-app-region: no-drag;
+  padding: 10px;
+  height: 100%;
+  width: 100%;
+  -webkit-app-region: no-drag;
 }
 
 body {
-    margin: 0;
+  margin: 0;
 }
 
 * {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 .drag-region {
-    -webkit-app-region: drag;
+  -webkit-app-region: drag;
 }
 
 .no-drag {
-    -webkit-app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+@layer components {
+  .textarea {
+    &:focus-visible,
+    &[data-focus-visible='true'] {
+      @apply ring-0 border-separator;
+    }
+  }
+}
+
+.chat-item {
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  -webkit-app-region: no-drag;
+}
+
+.chat-item:hover {
+  background-color: var(--default-soft);
+}
+
+.chat-item[data-active='true'] {
+  background-color: var(--default);
+}
+
+.chat-item:hover .chat-ellipsis {
+  opacity: 1;
+}
+
+[role='menu'],
+[role='menuitem'],
+[data-slot='menu'] {
+  -webkit-app-region: no-drag;
 }
 
 .drag-region button,
@@ -54,7 +88,9 @@ body {
 .drag-region input,
 .drag-region textarea,
 .drag-region select,
+.drag-region .chat-item,
+.drag-region .chat-item *,
 .drag-region .no-drag,
 .drag-region .no-drag * {
-    -webkit-app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
