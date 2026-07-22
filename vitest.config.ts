@@ -13,6 +13,6 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['./src/renderer/src/test/setup.ts'],
-    exclude: ['src/platform/**', 'node_modules/**', '.opencode/**'],
+    exclude: ['node_modules/**', '.opencode/**'],
   },
 });

@@ -1,3 +1,5 @@
+import { IDisposable } from '@/base/lifecycle.js';
+
 export function timeout(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -40,7 +42,7 @@ export function debounce<T extends (...args: any[]) => any>(
 export function createCancelablePromise<T>(
   factory: (token: {
     isCancellationRequested: boolean;
-    onCancellationRequested: (cb: () => void) => { dispose: () => void };
+    onCancellationRequested: (cb: () => void) => { dispose: () => void; };
   }) => Promise<T>,
 ) {
   let cancelled = false;
@@ -73,14 +75,14 @@ export function createCancelablePromise<T>(
   });
 }
 
-export function simpleCancelablePromise<T>(
+export function CancelablePromise<T>(
   promise: Promise<T>,
-): Promise<T> & { cancel(): void } {
+): Promise<T> & { cancel(): void; } {
   let cancel: () => void;
   const wrappedPromise = new Promise<T>((resolve, reject) => {
     cancel = () => reject(new Error('Promise was cancelled'));
     promise.then(resolve, reject);
-  }) as Promise<T> & { cancel(): void };
+  }) as Promise<T> & { cancel(): void; };
 
   wrappedPromise.cancel = cancel!;
   return wrappedPromise;
@@ -106,5 +108,66 @@ export async function sampleExampleUsage(): Promise<void> {
     console.log('Promise resolved:', value);
   } catch (error) {
     console.log('Promise cancelled:', (error as Error).message);
+  }
+}
+
+type IdleApi = Pick<typeof globalThis, 'requestIdleCallback' | 'cancelIdleCallback'>;
+
+export let _runWhenIdle: (targetWindow: IdleApi, callback: (idle: IdleDeadline) => void, timeout?: number) => IDisposable;
+
+
+export abstract class AbstractIdleValue<T> {
+
+  private readonly _executor: () => void;
+  private readonly _handle: IDisposable;
+
+  private _didRun: boolean = false;
+  private _value?: T;
+  private _error: unknown;
+
+  constructor(targetWindow: IdleApi, executor: () => T) {
+    this._executor = () => {
+      try {
+        this._value = executor();
+      } catch (err) {
+        this._error = err;
+      } finally {
+        this._didRun = true;
+      }
+    };
+    this._handle = _runWhenIdle(targetWindow, () => this._executor());
+  }
+
+  dispose(): void {
+    this._handle.dispose();
+  }
+
+  get value(): T {
+    if (!this._didRun) {
+      this._handle.dispose();
+      this._executor();
+    }
+    if (this._error) {
+      throw this._error;
+    }
+    return this._value!;
+  }
+
+  get isInitialized(): boolean {
+    return this._didRun;
+  }
+}
+
+
+/**
+ * An `IdleValue` that always uses the current window (which might be throttled or inactive)
+ *
+ * **Note** that there is `dom.ts#WindowIdleValue` which is better suited when running inside a browser
+ * context
+ */
+export class GlobalIdleValue<T> extends AbstractIdleValue<T> {
+
+  constructor(executor: () => T) {
+    super(globalThis, executor);
   }
 }

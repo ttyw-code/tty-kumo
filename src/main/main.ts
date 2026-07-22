@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import { generateUuid } from '@/base/uuid';
+import { generateUuid } from '@/base/static/uuid';
 import { launchWorker } from '@/main/database/worker-launcher';
 import { DBPersister } from '@/main/database/persister';
 import type { IDBPersister } from '@/main/database/types';
