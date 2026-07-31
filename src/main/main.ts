@@ -7,6 +7,10 @@ import { DBPersister } from '@/main/database/persister';
 import type { IDBPersister } from '@/main/database/types';
 import { createTray } from '@/main/tray';
 import { registerAgentIpc } from '@/main/agent/ipc';
+import { AgentConfigStore } from '@/main/agent/config';
+import { OpenAIProvider } from '@/main/agent/llm/openai';
+import { MockProvider } from '@/main/agent/llm/mock';
+import { abortAllRuns } from '@/main/agent/run';
 
 class MainApplication {
   private mainWindow: BrowserWindow | null = null;
@@ -23,6 +27,8 @@ class MainApplication {
   }
 
   private registerListeners(): void {
+    app.on('will-quit', () => abortAllRuns());
+
     app.on('second-instance', () => {
       if (this.mainWindow) {
         if (this.mainWindow.isMinimized()) this.mainWindow.restore();
@@ -65,7 +71,12 @@ class MainApplication {
     }
 
     this.registerIpcHandlers();
-    registerAgentIpc();
+    if (this.db) {
+      registerAgentIpc({
+        configStore: new AgentConfigStore(this.db),
+        createProvider: () => (process.env.TTY_MOCK === '1' ? new MockProvider() : new OpenAIProvider()),
+      });
+    }
   }
 
   private getPreloadPath(): string | null {

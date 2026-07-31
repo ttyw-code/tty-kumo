@@ -23,10 +23,20 @@ export interface AgentStreamEvent {
 export interface SendAgentMessage {
   content: string;
   chatId: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
+
+export interface AgentConfig {
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+  mock?: boolean;
 }
 
 export const IPC = {
   send: 'agent:chat:send',
   abort: 'agent:chat:abort',
   stream: 'agent:stream',
+  configGet: 'agent:config:get',
+  configSet: 'agent:config:set',
 } as const;

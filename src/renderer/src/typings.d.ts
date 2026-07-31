@@ -1,4 +1,4 @@
-import type { AgentStreamEvent, SendAgentMessage } from '@/common/ipc';
+import type { AgentBridge } from '@/main/preload';
 
 declare module '*.css';
 
@@ -11,10 +11,6 @@ declare global {
       minimize: () => void;
       close: () => void;
     };
-    agentBridge?: {
-      send: (payload: SendAgentMessage) => Promise<string>;
-      abort: (runId: string) => Promise<void>;
-      onStream: (callback: (evt: AgentStreamEvent) => void) => () => void;
-    };
+    agentBridge?: AgentBridge;
   }
 }

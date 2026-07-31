@@ -4,7 +4,7 @@ import { parentPort } from 'worker_threads';
 import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 
-type WorkerMessage =
+export type WorkerMessage =
   | { type: 'init'; payload: { path: string; }; requestId?: string; }
   | { type: 'put'; payload: { key: string; value: string; }; requestId?: string; }
   | { type: 'get'; payload: { key: string; }; requestId?: string; }
@@ -21,6 +21,8 @@ type DbData = {
 };
 
 let db: Low<DbData> | null = null;
+
+let opQueue: Promise<void> = Promise.resolve();
 
 function postMessage(message: WorkerResponse): void {
   if (parentPort) {
@@ -46,7 +48,7 @@ async function ensureDbOpen(dbPath: string): Promise<void> {
   await db.write();
 }
 
-async function handleMessage(message: WorkerMessage): Promise<void> {
+export async function handleMessage(message: WorkerMessage): Promise<void> {
   try {
     switch (message.type) {
       case 'init':
@@ -107,8 +109,15 @@ async function handleMessage(message: WorkerMessage): Promise<void> {
   }
 }
 
+export function enqueueMessage(message: WorkerMessage): Promise<void> {
+  // 串行队列：lowdb 的 db.write() 是整文件读改写，并发写会互相覆盖丢更新
+  const run = opQueue.then(() => handleMessage(message)).catch(() => {});
+  opQueue = run;
+  return run;
+}
+
 if (parentPort) {
   parentPort.on('message', (message: WorkerMessage) => {
-    void handleMessage(message);
+    void enqueueMessage(message);
   });
 }

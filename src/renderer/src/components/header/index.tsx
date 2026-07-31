@@ -5,14 +5,16 @@ import {
   PanelLeftOpen,
   Sun,
   Moon,
+  Settings,
 } from 'lucide-react';
 import { useStore } from '@/renderer/src/store';
 
 interface HeaderProps {
   onExit: () => void;
+  onOpenConfig: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onExit }) => {
+const Header: React.FC<HeaderProps> = ({ onExit, onOpenConfig }) => {
   const expanded = useStore((s) => s.expanded);
   const toggleExpanded = useStore((s) => s.toggleExpanded);
   const theme = useStore((s) => s.theme);
@@ -30,6 +32,12 @@ const Header: React.FC<HeaderProps> = ({ onExit }) => {
         <span className="text-sm font-bold">Pro AI components showcase</span>
         <span className="text-xs text-muted">Updated Just now</span>
       </div>
+      <button
+        onClick={onOpenConfig}
+        className="p-1 hover:bg-default-soft hover:rounded-full hover:cursor-pointer"
+      >
+        <Settings size={18} />
+      </button>
       <button
         onClick={toggleTheme}
         className="p-1 hover:bg-default-soft hover:rounded-full hover:cursor-pointer"

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Theme, initialTheme, applyTheme } from './theme-context';
-import type { AgentErrorCode, AgentStreamEvent } from '@/common/ipc';
+import type { AgentConfig, AgentErrorCode, AgentStreamEvent } from '@/common/ipc';
 
 interface Chat {
   id: string;
@@ -15,6 +15,7 @@ interface Message {
   content: string;
   stopped?: boolean;
   error?: { code: AgentErrorCode; message: string };
+  toolCalls?: unknown[];
 }
 
 interface StreamingState {
@@ -28,6 +29,10 @@ interface Store {
 
   expanded: boolean;
   toggleExpanded: () => void;
+
+  config: AgentConfig | null;
+  loadConfig: () => Promise<void>;
+  saveConfig: (cfg: { baseUrl: string; model: string; apiKey: string }) => Promise<void>;
 
   chats: Chat[];
   activeChatId: string | null;
@@ -55,7 +60,7 @@ function createChat(title: string): Chat {
 }
 
 function nextId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID();
 }
 
 function finalizeMessage(
@@ -87,6 +92,20 @@ export const useStore = create<Store>((set, get) => ({
       return { theme: next };
     }),
   toggleExpanded: () => set((state) => ({ expanded: !state.expanded })),
+
+  config: null,
+  loadConfig: async () => {
+    try {
+      const config = await window.agentBridge!.configGet();
+      set({ config });
+    } catch {
+      // 主进程不可用时保持未配置状态
+    }
+  },
+  saveConfig: async (cfg) => {
+    const config = await window.agentBridge!.configSet(cfg);
+    set({ config });
+  },
 
   chats: [],
   activeChatId: null,
@@ -120,6 +139,10 @@ export const useStore = create<Store>((set, get) => ({
     if (!activeChatId) return;
     if (get().streamingByChat[activeChatId]) return;
 
+    const history = (get().messagesByChat[activeChatId] ?? []).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
     const userMsg: Message = { id: nextId(), role: 'user', content };
     const assistantMsg: Message = { id: nextId(), role: 'assistant', content: '' };
     set((state) => ({
@@ -148,16 +171,17 @@ export const useStore = create<Store>((set, get) => ({
     }));
 
     try {
-      const runId = await window.agentBridge!.send({ content, chatId: activeChatId });
-      set((state) => ({
-        streamingByChat: {
-          ...state.streamingByChat,
-          [activeChatId]: {
-            ...state.streamingByChat[activeChatId],
-            runId,
+      const runId = await window.agentBridge!.send({ content, chatId: activeChatId, history });
+      set((state) => {
+        const cur = state.streamingByChat[activeChatId];
+        if (!cur) return state;
+        return {
+          streamingByChat: {
+            ...state.streamingByChat,
+            [activeChatId]: { ...cur, runId },
           },
-        },
-      }));
+        };
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       set((state) =>
