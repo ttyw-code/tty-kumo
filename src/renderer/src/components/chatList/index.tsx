@@ -13,6 +13,7 @@ const ChatList: React.FC = () => {
   const chats = useStore((s) => s.chats);
   const activeChatId = useStore((s) => s.activeChatId);
   const setActiveChat = useStore((s) => s.setActiveChat);
+  const deleteChat = useStore((s) => s.deleteChat);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   return (
@@ -58,7 +59,6 @@ const ChatList: React.FC = () => {
           position={{ x: menu.x, y: menu.y }}
           onClose={() => {
             setMenu(null);
-            console.log('close menu');
           }}
           items={[
             {
@@ -80,7 +80,9 @@ const ChatList: React.FC = () => {
               icon: <Trash2 className="size-4 text-danger" />,
               label: '删除',
               danger: true,
-              onClick: () => {},
+              onClick: () => {
+                deleteChat(menu.chatId);
+              },
             },
           ]}
         />

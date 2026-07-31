@@ -2,12 +2,15 @@ import React from 'react';
 import { SquarePlus, ImagePlus, PackageSearch } from 'lucide-react';
 import { Avatar, Button } from '@heroui/react';
 import ChatList from '@/renderer/src/components/chatList/index';
+import { useStore } from '@/renderer/src/store';
 
 interface SidebarProps {
   expanded: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ expanded }) => {
+  const newChat = useStore((s) => s.newChat);
+
   return (
     <nav
       className={`h-full flex flex-col ${expanded ? 'w-50 border-r border-separator' : 'w-0'} overflow-hidden transition-all duration-300`}
@@ -22,7 +25,7 @@ const Sidebar: React.FC<SidebarProps> = ({ expanded }) => {
             <span className="text-xs text-muted">bob@example.com</span>
           </div>
         </div>
-        <Button className="w-full justify-start" variant="outline">
+        <Button className="w-full justify-start" variant="outline" onPress={newChat}>
           <SquarePlus />
           New Chat
         </Button>

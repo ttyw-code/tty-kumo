@@ -6,6 +6,7 @@ import { launchWorker } from '@/main/database/worker-launcher';
 import { DBPersister } from '@/main/database/persister';
 import type { IDBPersister } from '@/main/database/types';
 import { createTray } from '@/main/tray';
+import { registerAgentIpc } from '@/main/agent/ipc';
 
 class MainApplication {
   private mainWindow: BrowserWindow | null = null;
@@ -64,6 +65,7 @@ class MainApplication {
     }
 
     this.registerIpcHandlers();
+    registerAgentIpc();
   }
 
   private getPreloadPath(): string | null {
