@@ -3,6 +3,7 @@ import { IPC, type SendAgentMessage } from '@/common/ipc';
 import type { AgentConfigStore } from './config';
 import type { ChatProvider, LLMMessage } from './llm/provider';
 import { abortRun, cleanupRun, createRun, isChatRunning, startRun } from './run';
+import { generateUuid } from '@/base/static/uuid';
 
 export function registerAgentIpc(deps: {
   configStore: AgentConfigStore;
@@ -26,7 +27,7 @@ export function registerAgentIpc(deps: {
       throw new Error('该会话已有进行中的回复，请等待完成或停止后再发送');
     }
 
-    const runId = crypto.randomUUID();
+    const runId = generateUuid();
     const run = createRun({ runId, chatId: payload.chatId, wc: event.sender });
     event.sender.once('destroyed', () => cleanupRun(runId));
 

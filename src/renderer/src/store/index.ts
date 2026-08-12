@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Theme, initialTheme, applyTheme } from './theme-context';
 import type { AgentConfig, AgentErrorCode, AgentStreamEvent } from '@/common/ipc';
+import { generateUuid } from '@/base/static/uuid';
 
 interface Chat {
   id: string;
@@ -60,7 +61,7 @@ function createChat(title: string): Chat {
 }
 
 function nextId(): string {
-  return crypto.randomUUID();
+  return generateUuid();
 }
 
 function finalizeMessage(
