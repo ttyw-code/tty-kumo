@@ -11,7 +11,7 @@
     "start": "yarn build && electron .",
     "dev:main": "vite build --config vite.main.config.ts --watch",
     "dev:renderer": "vite",
-    "dev:electron": "wait-on file:out/src/main/main.cjs file:out/src/main/preload.cjs tcp:127.0.0.1:5175 && nodemon --watch out/src/main --ext cjs --exec \"cross-env NODE_NO_WARNINGS=1 VITE_DEV_SERVER_URL=http://localhost:5175 electron .\"",
+    "dev:electron": "wait-on file:out/src/main/main.cjs file:out/src/main/preload.cjs tcp:127.0.0.1:5175 && nodemon --watch out/src/main --ext cjs --exec \"cross-env NODE_NO_WARNINGS=1 TTY_MOCK=1 VITE_DEV_SERVER_URL=http://localhost:5175 electron .\"",
     "dev": "concurrently -k \"cross-env NODE_NO_WARNINGS=1 yarn dev:main\" \"cross-env NODE_NO_WARNINGS=1 yarn dev:renderer -- --logLevel error\" \"yarn dev:electron\"",
     "pack:win": "yarn build && electron-builder --win",
     "pack:nsis": "yarn build && electron-builder --win nsis",

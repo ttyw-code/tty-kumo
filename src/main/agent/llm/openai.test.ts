@@ -152,4 +152,27 @@ describe('OpenAIProvider SSE 解析', () => {
     }
     expect(texts.length).toBe(0);
   });
+
+it('流式 tool_calls 跨块累积并随 finishReason 产出完整参数', async () => {
+    const data = chunks([
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'now', arguments: '' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"f' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'ormat:iso' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '}' } }] }, finish_reason: 'tool_calls' }] },
+    ]);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(sse(data))));
+
+    const provider = new OpenAIProvider();
+    let toolCalls: Array<{ id: string; name: string; arguments: string }> | undefined;
+    let finish: string | undefined;
+    for await (const d of provider.chat(req)) {
+      if (d.toolCalls) toolCalls = d.toolCalls;
+      if (d.finishReason) finish = d.finishReason;
+    }
+
+    expect(finish).toBe('tool_calls');
+    expect(toolCalls).toEqual([
+      { id: 'call_1', name: 'now', arguments: '{"format:iso}' },
+    ]);
+  });
 });

@@ -45,6 +45,23 @@ const Message: React.FC = () => {
                 {msg.error && (
                   <div className="text-xs text-danger mt-1">错误：{msg.error.message}</div>
                 )}
+                {msg.toolCalls && msg.toolCalls.length > 0 && (
+                  <div className="flex flex-col gap-1 mt-1">
+                    {msg.toolCalls.map((tc) => (
+                      <div
+                        key={tc.id}
+                        className="text-xs text-muted bg-content1 rounded-md px-2 py-1"
+                      >
+                        调用工具 {tc.name}({tc.args || '{}'})
+                        {tc.result !== undefined ? (
+                          <div className="mt-0.5 truncate">结果: {tc.result}</div>
+                        ) : (
+                          <span className="inline-block w-1.5 h-1.5 ml-1 rounded-full bg-primary animate-pulse" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))}

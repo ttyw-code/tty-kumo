@@ -10,6 +10,14 @@ import { registerAgentIpc } from '@/main/agent/ipc';
 import { AgentConfigStore } from '@/main/agent/config';
 import { OpenAIProvider } from '@/main/agent/llm/openai';
 import { MockProvider } from '@/main/agent/llm/mock';
+import { DefaultToolRegistry } from '@/main/agent/tools/registry';
+import { nowTool } from '@/main/agent/tools/now';
+import { readFileTool, writeFileTool, listDirTool } from '@/main/agent/tools/fs';
+import { shellTool } from '@/main/agent/tools/shell';
+import { clipboardGetTool, clipboardSetTool } from '@/main/agent/tools/clipboard';
+import { webSearchTool } from '@/main/agent/tools/web';
+import { createDbTools } from '@/main/agent/tools/db';
+import { createCalendarTools } from '@/main/agent/tools/calendar';
 import { abortAllRuns } from '@/main/agent/run';
 
 class MainApplication {
@@ -72,9 +80,21 @@ class MainApplication {
 
     this.registerIpcHandlers();
     if (this.db) {
+      const tools = new DefaultToolRegistry();
+      tools.register(nowTool);
+      tools.register(readFileTool);
+      tools.register(writeFileTool);
+      tools.register(listDirTool);
+      tools.register(shellTool);
+      tools.register(clipboardGetTool);
+      tools.register(clipboardSetTool);
+      tools.register(webSearchTool);
+      for (const tool of createDbTools(this.db)) tools.register(tool);
+      for (const tool of createCalendarTools(this.db)) tools.register(tool);
       registerAgentIpc({
         configStore: new AgentConfigStore(this.db),
         createProvider: () => (process.env.TTY_MOCK === '1' ? new MockProvider() : new OpenAIProvider()),
+        tools,
       });
     }
   }

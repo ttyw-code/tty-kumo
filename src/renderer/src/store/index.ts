@@ -16,7 +16,7 @@ interface Message {
   content: string;
   stopped?: boolean;
   error?: { code: AgentErrorCode; message: string };
-  toolCalls?: unknown[];
+  toolCalls?: Array<{ id: string; name: string; args: string; result?: string }>;
 }
 
 interface StreamingState {
@@ -62,6 +62,23 @@ function createChat(title: string): Chat {
 
 function nextId(): string {
   return generateUuid();
+}
+
+function upsertToolCall(
+  calls: NonNullable<Message['toolCalls']>,
+  evt: AgentStreamEvent,
+): NonNullable<Message['toolCalls']> {
+  const idx = calls.findIndex((c) => c.id === evt.toolCallId);
+  const entry = {
+    id: evt.toolCallId!,
+    name: evt.toolName!,
+    args: evt.toolArgs ?? '',
+    result: evt.toolResult,
+  };
+  if (idx === -1) return [...calls, entry];
+  const next = [...calls];
+  next[idx] = { ...next[idx], result: evt.toolResult };
+  return next;
 }
 
 function finalizeMessage(
@@ -143,6 +160,11 @@ export const useStore = create<Store>((set, get) => ({
     const history = (get().messagesByChat[activeChatId] ?? []).map((m) => ({
       role: m.role,
       content: m.content,
+      toolCalls: m.toolCalls?.map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        arguments: tc.args,
+      })),
     }));
     const userMsg: Message = { id: nextId(), role: 'user', content };
     const assistantMsg: Message = { id: nextId(), role: 'assistant', content: '' };
@@ -208,6 +230,24 @@ export const useStore = create<Store>((set, get) => ({
           ...state.messagesByChat,
           [evt.chatId]: (state.messagesByChat[evt.chatId] ?? []).map((m) =>
             m.id === st.assistantId ? { ...m, content: m.content + evt.text } : m,
+          ),
+        },
+      }));
+      return;
+    }
+
+    if (evt.kind === 'tool') {
+      if (!evt.toolCallId || !evt.toolName) return;
+      set((state) => ({
+        messagesByChat: {
+          ...state.messagesByChat,
+          [evt.chatId]: (state.messagesByChat[evt.chatId] ?? []).map((m) =>
+            m.id === st.assistantId
+              ? {
+                  ...m,
+                  toolCalls: upsertToolCall(m.toolCalls ?? [], evt),
+                }
+              : m,
           ),
         },
       }));

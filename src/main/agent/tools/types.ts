@@ -8,6 +8,7 @@ export interface ToolDefinition {
 export interface ToolExecuteContext {
   runId: string;
   chatId: string;
+  signal: AbortSignal;
 }
 
 export interface Tool {

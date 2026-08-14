@@ -3,10 +3,20 @@ import {
   ChatRequest,
   LLMDelta,
   LLMError,
+  LLMToolCall,
 } from './provider';
 
+interface StreamToolCallPart {
+  index: number;
+  id?: string;
+  function?: { name?: string; arguments?: string } | null;
+}
+
 interface StreamChunk {
-  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+  choices?: Array<{
+    delta?: { content?: string; tool_calls?: StreamToolCallPart[] | null };
+    finish_reason?: string | null;
+  }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string; code?: string };
 }
@@ -53,6 +63,7 @@ export class OpenAIProvider implements ChatProvider {
             model,
             messages,
             stream: true,
+            ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
           }),
           signal: controller.signal,
         });
@@ -75,6 +86,8 @@ export class OpenAIProvider implements ChatProvider {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      const toolCallAccum: Map<number, { id: string; name: string; args: string }> = new Map();
+
       while (true) {
         const { done, value } = await reader.read();
         if (signal.aborted || controller.signal.aborted) return;
@@ -109,9 +122,20 @@ export class OpenAIProvider implements ChatProvider {
             armInactivity();
             yield { text };
           }
+          for (const part of choice?.delta?.tool_calls ?? []) {
+            const cur = toolCallAccum.get(part.index) ?? { id: '', name: '', args: '' };
+            if (part.id) cur.id = part.id;
+            if (part.function?.name) cur.name += part.function.name;
+            cur.args += part.function?.arguments ?? '';
+            toolCallAccum.set(part.index, cur);
+          }
           if (choice?.finish_reason) {
+            const toolCalls: LLMToolCall[] = [...toolCallAccum.values()]
+              .filter((tc) => tc.id && tc.name)
+              .map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.args }));
             yield {
               finishReason: choice.finish_reason,
+              toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               usage: chunk.usage
                 ? {
                     inputTokens: chunk.usage.prompt_tokens ?? 0,

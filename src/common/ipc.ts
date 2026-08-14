@@ -1,4 +1,4 @@
-export type AgentStreamKind = 'delta' | 'done' | 'aborted' | 'error';
+export type AgentStreamKind = 'delta' | 'tool' | 'done' | 'aborted' | 'error';
 
 export type AgentErrorCode =
   | 'no_config'
@@ -14,6 +14,10 @@ export interface AgentStreamEvent {
   chatId: string;
   kind: AgentStreamKind;
   text?: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolArgs?: string;
+  toolResult?: string;
   code?: AgentErrorCode;
   message?: string;
   usage?: { inputTokens: number; outputTokens: number };
@@ -23,7 +27,12 @@ export interface AgentStreamEvent {
 export interface SendAgentMessage {
   content: string;
   chatId: string;
-  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  history: Array<{
+    role: 'user' | 'assistant' | 'tool';
+    content: string;
+    toolCallId?: string;
+    toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+  }>;
 }
 
 export interface AgentConfig {

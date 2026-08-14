@@ -2,6 +2,7 @@ import type { WebContents } from 'electron';
 import { CancellationTokenSource } from '@/base/cancellation';
 import { IPC, type AgentConfig, type AgentStreamEvent } from '@/common/ipc';
 import type { ChatProvider, ChatRequest, LLMMessage, LLMError } from './llm/provider';
+import type { ToolRegistry } from './tools/types';
 
 export type RunStatus = 'running' | 'done' | 'aborted' | 'error';
 
@@ -19,6 +20,7 @@ const runs = new Map<string, Run>();
 const runByChat = new Map<string, string>();
 
 const MAX_RETRIES = 2;
+const MAX_TOOL_ROUNDS = 8;
 
 function send(wc: WebContents, evt: AgentStreamEvent): void {
   if (!wc.isDestroyed()) wc.send(IPC.stream, evt);
@@ -45,10 +47,24 @@ function tokenToSignal(cts: CancellationTokenSource): AbortSignal {
   return controller.signal;
 }
 
-async function pump(run: Run, provider: ChatProvider, req: ChatRequest): Promise<void> {
-  let yieldedAny = false;
+function parseToolArgs(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
 
-  for (let attempt = 0; ; attempt++) {
+async function pump(
+  run: Run,
+  provider: ChatProvider,
+  registry: ToolRegistry,
+  req: ChatRequest,
+): Promise<void> {
+  let yieldedAny = false;
+  let toolRounds = 0;
+
+  loop: for (let attempt = 0; ; attempt++) {
     if (run.cts.token.isCancellationRequested) {
       finishRun(run, 'aborted');
       send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
@@ -67,6 +83,65 @@ async function pump(run: Run, provider: ChatProvider, req: ChatRequest): Promise
           send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'delta', text: delta.text });
         }
         if (delta.finishReason) {
+          const toolCalls = delta.toolCalls ?? [];
+          if (delta.finishReason === 'tool_calls' && toolCalls.length > 0) {
+            if (toolRounds >= MAX_TOOL_ROUNDS) {
+              finishRun(run, 'error');
+              send(run.wc, {
+                runId: run.runId,
+                chatId: run.chatId,
+                kind: 'error',
+                code: 'unknown',
+                message: `工具调用轮次超过上限（${MAX_TOOL_ROUNDS}）`,
+              });
+              return;
+            }
+            toolRounds += 1;
+
+            const signal = tokenToSignal(run.cts);
+            req.messages.push({
+              role: 'assistant',
+              content: '',
+              toolCalls,
+            });
+            for (const tc of toolCalls) {
+              if (run.cts.token.isCancellationRequested) {
+                finishRun(run, 'aborted');
+                send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+                return;
+              }
+              send(run.wc, {
+                runId: run.runId,
+                chatId: run.chatId,
+                kind: 'tool',
+                toolCallId: tc.id,
+                toolName: tc.name,
+                toolArgs: tc.arguments,
+              });
+              let result: string;
+              try {
+                result = await registry.execute(tc.name, parseToolArgs(tc.arguments), {
+                  runId: run.runId,
+                  chatId: run.chatId,
+                  signal,
+                });
+              } catch (err) {
+                result = `工具执行失败：${err instanceof Error ? err.message : String(err)}`;
+              }
+              req.messages.push({ role: 'tool', toolCallId: tc.id, content: result });
+              send(run.wc, {
+                runId: run.runId,
+                chatId: run.chatId,
+                kind: 'tool',
+                toolCallId: tc.id,
+                toolName: tc.name,
+                toolArgs: tc.arguments,
+                toolResult: result,
+              });
+            }
+            continue loop;
+          }
+
           finishRun(run, 'done');
           send(run.wc, {
             runId: run.runId,
@@ -148,20 +223,22 @@ export function createRun(opts: {
 export function startRun(opts: {
   run: Run;
   provider: ChatProvider;
+  registry: ToolRegistry;
   config: AgentConfig;
   apiKey: string;
   messages: LLMMessage[];
 }): void {
-  const { run, provider, config, apiKey, messages } = opts;
+  const { run, provider, registry, config, apiKey, messages } = opts;
   const req: ChatRequest = {
     messages,
     model: config.model,
     baseUrl: config.baseUrl,
     apiKey,
     signal: tokenToSignal(run.cts),
+    tools: registry.list(),
   };
   setImmediate(() => {
-    void pump(run, provider, req);
+    void pump(run, provider, registry, req);
   });
 }
 

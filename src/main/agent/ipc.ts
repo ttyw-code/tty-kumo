@@ -2,12 +2,14 @@ import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { IPC, type SendAgentMessage } from '@/common/ipc';
 import type { AgentConfigStore } from './config';
 import type { ChatProvider, LLMMessage } from './llm/provider';
+import type { ToolRegistry } from './tools/types';
 import { abortRun, cleanupRun, createRun, isChatRunning, startRun } from './run';
 import { generateUuid } from '@/base/static/uuid';
 
 export function registerAgentIpc(deps: {
   configStore: AgentConfigStore;
   createProvider: () => ChatProvider;
+  tools: ToolRegistry;
 }): void {
   const provider = deps.createProvider();
   const needsConfig = provider.requiresConfig !== false;
@@ -33,7 +35,12 @@ export function registerAgentIpc(deps: {
 
     const config = await deps.configStore.get();
     const messages: LLMMessage[] = [
-      ...payload.history.map((m) => ({ role: m.role, content: m.content })),
+      ...payload.history.map((m) => ({
+        role: m.role,
+        content: m.content,
+        toolCallId: m.toolCallId,
+        toolCalls: m.toolCalls,
+      })),
       { role: 'user', content: payload.content },
     ];
 
@@ -54,7 +61,7 @@ export function registerAgentIpc(deps: {
     }
 
     const apiKey = needsConfig ? await deps.configStore.getDecryptedKey() : '';
-    startRun({ run, provider, config, apiKey: apiKey ?? '', messages });
+    startRun({ run, provider, registry: deps.tools, config, apiKey: apiKey ?? '', messages });
     return runId;
   });
 
