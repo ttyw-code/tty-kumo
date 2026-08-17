@@ -20,7 +20,7 @@ import { createDbTools } from '@/main/agent/tools/db';
 import { createCalendarTools } from '@/main/agent/tools/calendar';
 import { abortAllRuns } from '@/main/agent/run';
 
-class MainApplication {
+class Application {
   private mainWindow: BrowserWindow | null = null;
   private db: IDBPersister | null = null;
 
@@ -176,4 +176,4 @@ class MainApplication {
   }
 }
 
-new MainApplication().start();
+new Application().start();
