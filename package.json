@@ -23,6 +23,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@heroui/react": "^3.1.0",
+    "@heroui/styles": "^3.0.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -39,71 +41,26 @@
     "electron": "^37.2.0",
     "electron-builder": "^26.4.0",
     "happy-dom": "^20.10.6",
+    "lowdb": "^7.0.1",
     "lucide-react": "^0.562.0",
     "nodemon": "^3.1.10",
     "postcss": "^8.5.6",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "tailwindcss": "^4.1.18",
+    "typescript": "^5.8.3",
     "vite": "^6.0.0",
     "vite-plugin-inspect": "^11.3.3",
     "vite-plugin-oxc": "^0.0.4",
     "vitest": "^4.1.10",
-    "wait-on": "^7.2.0"
-  },
-  "dependencies": {
-    "@heroui/react": "^3.1.0",
-    "@heroui/styles": "^3.0.0",
-    "lowdb": "^7.0.1",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "typescript": "^5.8.3",
+    "wait-on": "^7.2.0",
     "zustand": "^5.0.14"
   },
+  "dependencies": {},
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
     ]
-  },
-  "build": {
-    "appId": "com.tty.kumo",
-    "productName": "tty-kumo",
-    "asar": true,
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "extraMetadata": {
-      "main": "out/src/main/main.cjs"
-    },
-    "win": {
-      "icon": "build/icons/brain.ico",
-      "target": [
-        "nsis",
-        "msi"
-      ]
-    },
-    "mac": {
-      "icon": "build/icons/brain.icns"
-    },
-    "linux": {
-      "icon": "build/icons/brain.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowElevation": true,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "tty-kumo",
-      "uninstallDisplayName": "tty-kumo"
-    },
-    "msi": {
-      "perMachine": false
-    }
   }
 }

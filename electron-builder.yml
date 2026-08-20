@@ -1,0 +1,36 @@
+appId: com.tty.kumo
+productName: tty-kumo
+artifactName: ${productName}-${version}.${ext}
+asar: true
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: build/icons
+    to: build/icons
+extraMetadata:
+  main: out/src/main/main.cjs
+win:
+  icon: build/icons/brain.ico
+  target:
+    - nsis
+    - msi
+mac:
+  icon: build/icons/brain.icns
+linux:
+  icon: build/icons/brain.png
+nsis:
+  artifactName: ${productName}-${version}-setup.${ext}
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: tty-kumo
+  uninstallDisplayName: tty-kumo
+msi:
+  perMachine: false

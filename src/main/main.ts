@@ -29,7 +29,12 @@ class Application {
       app.quit();
       process.exit(0);
     }
-
+    Menu.setApplicationMenu(null);  //在onReady前触发
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    app.commandLine.appendSwitch('enable-gpu-rasterization');
+    app.commandLine.appendSwitch('enable-zero-copy');
+    app.commandLine.appendSwitch('enable-accelerated-video-decode');
     this.registerListeners();
     app.whenReady().then(() => this.init());
   }
@@ -110,7 +115,7 @@ class Application {
   }
 
   private createWindow(): void {
-    Menu.setApplicationMenu(null);
+
 
     const preloadPath = this.getPreloadPath();
     if (!preloadPath) {
