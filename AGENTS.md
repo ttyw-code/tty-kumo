@@ -24,13 +24,15 @@ Dev server runs on **port 5175** (not default 5173).
 src/
   main/           Electron main process (main.ts, preload.ts, tray.ts)
   renderer/src/   React app entry (main.tsx, app.tsx)
-  common/         Shared between main & renderer (database worker, LCS, IPC)
+  common/         Shared between main & renderer (IPC contract, session types, LCS)
   base/           VSCode-style primitives (Disposable, Emitter, Event, lifecycle)
   platform/       Platform abstractions (window, DI/graph)
 ```
 
 - **UI framework**: HeroUI (`@heroui/react`) + Lucide icons (`lucide-react`) + Tailwind CSS v4
-- **Database**: LowDB v7 running in a Node `worker_threads` (client: `common/database/lowdb-client.ts`, worker: `common/database/lowdb-worker.ts`)
+- **Database**: LowDB v7 running in a Node `worker_threads` (client: `src/main/database/persister.ts`, worker: `src/main/database/lowdb-worker.ts`). KV 是 `string → string`，每次 `put` 都会整文件重写 —— 别在流式回调里逐 delta 落盘
+- **Session storage**: 会话与消息的**真相源在主进程** —— `src/main/agent/session.ts` 的 `SessionStore`（`chat:index` + `chat:{id}`）；渲染端 `store/index.ts` 只是投影。设计见 `docs/specs/phase2-session-persistence.md`
+- **Tool safety**: 工具执行统一走 `DefaultToolRegistry.execute`，三层防护（`Tool.validate` 硬拦截 → `risk: 'confirm'` 弹窗放行 → 输出截断）。策略见 `docs/specs/tool-safety-guard.md`
 - **Path alias**: `@/` → `src/` (configured in both `tsconfig.json` paths and Vite resolve aliases)
 
 ## Build details
@@ -61,11 +63,15 @@ src/
 
 ## Testing
 
-No test runner configured. `yarn test` exits with error. A test file exists at `src/platform/instantiation/test/instantiation.test.ts` but there's no framework or run command.
+`yarn test` runs **vitest** (config: `vitest.config.ts`, `happy-dom` + testing-library setup at `src/renderer/src/test/setup.ts`). `yarn test:watch` for watch mode. There is no `typecheck` script — run `npx tsc --noEmit` directly; it must stay at 0 errors.
+
+拒绝类断言要落在**副作用**上（如 `expect(fs.existsSync(target)).toBe(false)`），只验返回文案会漏掉静默失效。
 
 ## CI
 
 GitHub Actions (`.github/workflows/electron-build.yml`) builds on windows/macos/ubuntu, runs `npm install` + `npm run build` + `npx electron-builder --publish=never`.
+
+⚠️ 两个已知问题：workflow 用的是 `npm install`，但仓库锁文件是 `yarn.lock`（依赖漂移风险）；且 CI **只 build，不跑 vitest 也不跑 tsc**，所以本地验证不能省。
 
 ## Agent skills
 

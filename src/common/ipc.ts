@@ -28,15 +28,29 @@ export interface AgentStreamEvent {
   finishReason?: string;
 }
 
+/**
+ * 发起一次对话。**不再携带 history** —— 历史由主进程从 SessionStore 读取，
+ * 渲染端只是它的投影。重载窗口或多窗口才能拿到一致上下文。
+ */
 export interface SendAgentMessage {
   content: string;
   chatId: string;
-  history: Array<{
-    role: 'user' | 'assistant' | 'tool';
-    content: string;
-    toolCallId?: string;
-    toolCalls?: Array<{ id: string; name: string; arguments: string }>;
-  }>;
+  /** 渲染端乐观插入时的用户消息 id；主进程沿用，避免两端 id 分叉 */
+  messageId?: string;
+}
+
+/** send 的返回值：assistantId 用于把后续流事件定位到同一条消息上 */
+export interface StartRunResult {
+  runId: string;
+  assistantId: string;
+}
+
+/** 进行中的 run：窗口重载后渲染端靠它重新接上流式输出 */
+export interface ActiveRun {
+  runId: string;
+  chatId: string;
+  assistantId?: string;
+  startedAt: number;
 }
 
 export interface AgentConfig {
@@ -61,4 +75,10 @@ export const IPC = {
   configGet: 'agent:config:get',
   configSet: 'agent:config:set',
   toolConfirmReply: 'agent:tool:confirm:reply',
+  chatList: 'agent:chat:list',
+  chatLoad: 'agent:chat:load',
+  chatCreate: 'agent:chat:create',
+  chatRename: 'agent:chat:rename',
+  chatDelete: 'agent:chat:delete',
+  runsList: 'agent:runs:list',
 } as const;

@@ -6,23 +6,33 @@ import type { AgentStreamEvent } from '@/common/ipc';
 const confirmTool = vi.fn();
 const abort = vi.fn();
 
+const chatDelete = vi.fn().mockResolvedValue(undefined);
+
 function bridge(): AgentBridge {
   return {
-    send: vi.fn().mockResolvedValue('run-1'),
+    send: vi.fn().mockResolvedValue({ runId: 'run-1', assistantId: 'a1' }),
     abort,
     onStream: vi.fn(),
     confirmTool,
     configGet: vi.fn(),
     configSet: vi.fn(),
+    chatList: vi.fn().mockResolvedValue([]),
+    chatLoad: vi.fn().mockResolvedValue(null),
+    chatCreate: vi.fn(),
+    chatRename: vi.fn(),
+    chatDelete,
+    runsList: vi.fn().mockResolvedValue([]),
   } as unknown as AgentBridge;
 }
 
 /** 构造「某会话正在流式输出」的初始态，handleStreamEvent 才会处理事件 */
 function seed(chatId: string, runId: string | null = 'run-1'): void {
   useStore.setState({
-    chats: [{ id: chatId, title: '会话', lastMessage: '', updatedAt: 0 }],
+    chats: [{ id: chatId, title: '会话', lastMessage: '', createdAt: 0, updatedAt: 0 }],
     activeChatId: chatId,
-    messagesByChat: { [chatId]: [{ id: 'a1', role: 'assistant', content: '' }] },
+    messagesByChat: {
+      [chatId]: [{ id: 'a1', role: 'assistant', content: '', createdAt: 0 }],
+    },
     streamingByChat: { [chatId]: { runId, assistantId: 'a1' } },
     confirmQueue: [],
   });
@@ -44,6 +54,7 @@ function confirmEvent(overrides: Partial<AgentStreamEvent> = {}): AgentStreamEve
 beforeEach(() => {
   confirmTool.mockReset();
   abort.mockReset();
+  chatDelete.mockClear();
   window.agentBridge = bridge();
 });
 
@@ -106,12 +117,12 @@ describe('工具确认队列', () => {
     expect(useStore.getState().confirmQueue).toHaveLength(0);
   });
 
-  it('删除会话时丢弃它挂着没答复的确认请求', () => {
+  it('删除会话时丢弃它挂着没答复的确认请求', async () => {
     seed('chat-1');
     useStore.getState().handleStreamEvent(confirmEvent({ chatId: 'chat-1' }));
     expect(useStore.getState().confirmQueue).toHaveLength(1);
 
-    useStore.getState().deleteChat('chat-1');
+    await useStore.getState().deleteChat('chat-1');
 
     expect(useStore.getState().confirmQueue).toHaveLength(0);
     // 会话正在流式输出，删除时顺带中止 run

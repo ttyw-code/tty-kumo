@@ -32,10 +32,17 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (useStore.getState().activeChatId === null) {
-      useStore.getState().newChat();
-    }
     void useStore.getState().loadConfig();
+    // 会话的真相源在主进程：先拉列表（顺带接回进行中的 run），
+    // 确实一条都没有时才建新会话
+    void useStore
+      .getState()
+      .loadChats()
+      .then(() => {
+        if (useStore.getState().chats.length === 0) {
+          void useStore.getState().newChat();
+        }
+      });
   }, []);
 
   // 首次打开未配置 → 弹配置引导（mock 模式无需配置，跳过）

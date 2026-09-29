@@ -12,7 +12,7 @@ interface MenuState {
 const ChatList: React.FC = () => {
   const chats = useStore((s) => s.chats);
   const activeChatId = useStore((s) => s.activeChatId);
-  const setActiveChat = useStore((s) => s.setActiveChat);
+  const selectChat = useStore((s) => s.selectChat);
   const deleteChat = useStore((s) => s.deleteChat);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -26,7 +26,7 @@ const ChatList: React.FC = () => {
           <div
             key={chat.id}
             data-active={chat.id === activeChatId}
-            onClick={() => setActiveChat(chat.id)}
+            onClick={() => void selectChat(chat.id)}
             className="chat-item flex items-center shrink-0 gap-1 px-2 py-1.5 rounded-lg transition-colors"
           >
             <span className="flex-1 truncate text-sm whitespace-nowrap">

@@ -21,6 +21,7 @@ import { createDbTools } from '@/main/agent/tools/db';
 import { configureSandboxRoots } from '@/main/agent/tools/guard';
 import { createCalendarTools } from '@/main/agent/tools/calendar';
 import { abortAllRuns } from '@/main/agent/run';
+import { SessionStore } from '@/main/agent/session';
 import type { ToolConfirmGateway } from '@/main/agent/confirm';
 
 class Application {
@@ -93,6 +94,14 @@ class Application {
     this.registerIpcHandlers();
     this.configureToolSandbox();
     if (this.db) {
+      const sessions = new SessionStore(this.db);
+      await sessions.ensureSchema();
+      // 上次进程留下的 streaming 占位不可能再有人收尾，标成中断
+      const interrupted = await sessions.markInterrupted();
+      if (interrupted > 0) {
+        console.log(`Marked ${interrupted} session(s) with interrupted runs`);
+      }
+
       const tools = new DefaultToolRegistry();
       tools.register(nowTool);
       tools.register(readFileTool);
@@ -108,6 +117,7 @@ class Application {
         configStore: new AgentConfigStore(this.db),
         createProvider: () => (process.env.TTY_MOCK === '1' ? new MockProvider() : new OpenAIProvider()),
         tools,
+        sessions,
       });
     }
   }
