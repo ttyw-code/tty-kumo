@@ -1,18 +1,20 @@
 import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import { IPC, type SendAgentMessage } from '@/common/ipc';
+import { IPC, type SendAgentMessage, type ToolConfirmReply } from '@/common/ipc';
 import type { AgentConfigStore } from './config';
 import type { ChatProvider, LLMMessage } from './llm/provider';
 import type { ToolRegistry } from './tools/types';
 import { abortRun, cleanupRun, createRun, isChatRunning, startRun } from './run';
+import { ToolConfirmGateway } from './confirm';
 import { generateUuid } from '@/base/static/uuid';
 
 export function registerAgentIpc(deps: {
   configStore: AgentConfigStore;
   createProvider: () => ChatProvider;
   tools: ToolRegistry;
-}): void {
+}): ToolConfirmGateway {
   const provider = deps.createProvider();
   const needsConfig = provider.requiresConfig !== false;
+  const gateway = new ToolConfirmGateway();
 
   ipcMain.handle(IPC.send, async (event: IpcMainInvokeEvent, payload: SendAgentMessage) => {
     if (
@@ -30,7 +32,7 @@ export function registerAgentIpc(deps: {
     }
 
     const runId = generateUuid();
-    const run = createRun({ runId, chatId: payload.chatId, wc: event.sender });
+    const run = createRun({ runId, chatId: payload.chatId, wc: event.sender, gateway });
     event.sender.once('destroyed', () => cleanupRun(runId));
 
     const config = await deps.configStore.get();
@@ -65,8 +67,14 @@ export function registerAgentIpc(deps: {
     return runId;
   });
 
-  ipcMain.handle(IPC.abort, (event, runId: string) => {
+  ipcMain.handle(IPC.abort, (_event, runId: string) => {
     abortRun(runId);
+    // 中止答复中途杀掉 run，确认请求不能悬着
+    gateway.cancelRun(runId);
+  });
+
+  ipcMain.on(IPC.toolConfirmReply, (_event, reply: ToolConfirmReply) => {
+    gateway.reply(reply);
   });
 
   ipcMain.handle(IPC.configGet, async () => ({
@@ -77,4 +85,6 @@ export function registerAgentIpc(deps: {
   ipcMain.handle(IPC.configSet, (_event, cfg: { baseUrl: string; model: string; apiKey: string }) => {
     return deps.configStore.set(cfg);
   });
+
+  return gateway;
 }

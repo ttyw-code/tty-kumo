@@ -1,6 +1,8 @@
 import type { IDBPersister } from '@/main/database/types';
 import type { Tool } from './types';
 
+// db_* 操作的是应用自持的 KV（LLM 的便签本），不是用户文件系统，
+// 因此全部判为 safe —— 记错可以改回来，不至于造成用户不可恢复的损失。
 export function createDbTools(db: IDBPersister): Tool[] {
   return [
     {
@@ -12,6 +14,7 @@ export function createDbTools(db: IDBPersister): Tool[] {
           properties: { key: { type: 'string' } },
           required: ['key'],
         },
+        risk: 'safe',
       },
       async execute(args: unknown) {
         const key = String((args as { key?: unknown }).key ?? '');
@@ -32,6 +35,7 @@ export function createDbTools(db: IDBPersister): Tool[] {
           },
           required: ['key', 'value'],
         },
+        risk: 'safe',
       },
       async execute(args: unknown) {
         const { key, value } = args as { key?: unknown; value?: unknown };
@@ -49,6 +53,7 @@ export function createDbTools(db: IDBPersister): Tool[] {
           properties: { key: { type: 'string' } },
           required: ['key'],
         },
+        risk: 'safe',
       },
       async execute(args: unknown) {
         const key = String((args as { key?: unknown }).key ?? '');

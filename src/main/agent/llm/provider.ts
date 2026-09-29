@@ -21,13 +21,35 @@ export interface LLMDelta {
   finishReason?: string;
 }
 
+/** OpenAI function calling 所需的工具声明格式 */
+export interface LLMTool {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+/** ToolDefinition → OpenAI tool 对象；risk/confirmHint 属于本地方针，不外发给模型 */
+export function toOpenAITool(definition: ToolDefinition): LLMTool {
+  return {
+    type: 'function',
+    function: {
+      name: definition.name,
+      description: definition.description,
+      parameters: definition.inputSchema,
+    },
+  };
+}
+
 export interface ChatRequest {
   messages: LLMMessage[];
   model: string;
   baseUrl: string;
   apiKey: string;
   signal: AbortSignal;
-  tools?: ToolDefinition[];
+  tools?: LLMTool[];
 }
 
 export interface ChatProvider {

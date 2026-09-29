@@ -67,6 +67,8 @@ export function createCalendarTools(db: IDBPersister): Tool[] {
           },
           required: ['title', 'when'],
         },
+        risk: 'confirm',
+        confirmHint: '会创建一条日程，到时间弹出系统通知',
       },
       async execute(args: unknown) {
         const { title, when } = args as { title?: unknown; when?: unknown };
@@ -86,6 +88,7 @@ export function createCalendarTools(db: IDBPersister): Tool[] {
         name: 'schedule_list',
         description: '列出所有日程提醒',
         inputSchema: {},
+        risk: 'safe',
       },
       async execute() {
         const schedules = await readSchedules(db);
@@ -104,6 +107,8 @@ export function createCalendarTools(db: IDBPersister): Tool[] {
           properties: { id: { type: 'string' } },
           required: ['id'],
         },
+        risk: 'confirm',
+        confirmHint: '会删除一条已有日程，取消其提醒',
       },
       async execute(args: unknown) {
         const id = String((args as { id?: unknown }).id ?? '');

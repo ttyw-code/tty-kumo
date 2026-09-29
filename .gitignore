@@ -137,3 +137,5 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+# WorkBuddy 会话记忆（含本机环境细节，不进仓库）
+.workbuddy/

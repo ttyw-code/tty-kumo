@@ -46,6 +46,10 @@ interface Store {
   sendMessage: (content: string) => Promise<void>;
   handleStreamEvent: (evt: AgentStreamEvent) => void;
   stopStreaming: () => void;
+
+  /** 等待用户答复的工具确认请求（按到达顺序展示） */
+  confirmQueue: AgentStreamEvent[];
+  resolveConfirm: (confirmId: string, decision: 'allow' | 'deny', remember: boolean) => void;
 }
 
 let chatSeq = 0;
@@ -146,12 +150,28 @@ export const useStore = create<Store>((set, get) => ({
       delete messagesByChat[id];
       const streamingByChat = { ...state.streamingByChat };
       delete streamingByChat[id];
-      return { chats, activeChatId, messagesByChat, streamingByChat };
+      return {
+        chats,
+        activeChatId,
+        messagesByChat,
+        streamingByChat,
+        // 会话已删除，挂着没答复的确认请求一并丢弃
+        confirmQueue: state.confirmQueue.filter((e) => e.chatId !== id),
+      };
     });
   },
 
   messagesByChat: {},
   streamingByChat: {},
+  confirmQueue: [],
+  resolveConfirm: (confirmId, decision, remember) => {
+    set((state) => ({
+      confirmQueue: state.confirmQueue.filter((e) => e.confirmId !== confirmId),
+    }));
+    // 拒绝时不记住「不再询问」：否则一次误点会静默放行后续同类操作
+    const effectiveRemember = decision === 'allow' && remember;
+    window.agentBridge?.confirmTool({ confirmId, decision, remember: effectiveRemember });
+  },
   sendMessage: async (content) => {
     const { activeChatId } = get();
     if (!activeChatId) return;
@@ -222,6 +242,12 @@ export const useStore = create<Store>((set, get) => ({
     const st = get().streamingByChat[evt.chatId];
     if (!st) return;
     if (st.runId !== null && st.runId !== evt.runId) return;
+
+    if (evt.kind === 'tool_confirm') {
+      if (!evt.confirmId) return;
+      set((state) => ({ confirmQueue: [...state.confirmQueue, evt] }));
+      return;
+    }
 
     if (evt.kind === 'delta') {
       if (!evt.text) return;

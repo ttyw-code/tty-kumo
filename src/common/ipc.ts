@@ -1,4 +1,4 @@
-export type AgentStreamKind = 'delta' | 'tool' | 'done' | 'aborted' | 'error';
+export type AgentStreamKind = 'delta' | 'tool' | 'tool_confirm' | 'done' | 'aborted' | 'error';
 
 export type AgentErrorCode =
   | 'no_config'
@@ -18,6 +18,10 @@ export interface AgentStreamEvent {
   toolName?: string;
   toolArgs?: string;
   toolResult?: string;
+  /** tool_confirm 事件的确认标识，渲染端回复时原样带回 */
+  confirmId?: string;
+  /** tool_confirm 事件上展示的后果说明 */
+  confirmHint?: string;
   code?: AgentErrorCode;
   message?: string;
   usage?: { inputTokens: number; outputTokens: number };
@@ -42,10 +46,19 @@ export interface AgentConfig {
   mock?: boolean;
 }
 
+/** 渲染端对 tool_confirm 的答复（经 agent:tool:confirm:reply 单向上报） */
+export interface ToolConfirmReply {
+  confirmId: string;
+  decision: 'allow' | 'deny';
+  /** allow 时是否记住「本次会话不再询问该工具」 */
+  remember: boolean;
+}
+
 export const IPC = {
   send: 'agent:chat:send',
   abort: 'agent:chat:abort',
   stream: 'agent:stream',
   configGet: 'agent:config:get',
   configSet: 'agent:config:set',
+  toolConfirmReply: 'agent:tool:confirm:reply',
 } as const;

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { generateUuid } from '@/base/static/uuid';
 import { launchWorker } from '@/main/database/worker-launcher';
 import { DBPersister } from '@/main/database/persister';
@@ -17,12 +18,15 @@ import { shellTool } from '@/main/agent/tools/shell';
 import { clipboardGetTool, clipboardSetTool } from '@/main/agent/tools/clipboard';
 import { webSearchTool } from '@/main/agent/tools/web';
 import { createDbTools } from '@/main/agent/tools/db';
+import { configureSandboxRoots } from '@/main/agent/tools/guard';
 import { createCalendarTools } from '@/main/agent/tools/calendar';
 import { abortAllRuns } from '@/main/agent/run';
+import type { ToolConfirmGateway } from '@/main/agent/confirm';
 
 class Application {
   private mainWindow: BrowserWindow | null = null;
   private db: IDBPersister | null = null;
+  private confirmGateway: ToolConfirmGateway | null = null;
 
   start(): void {
     if (!app.requestSingleInstanceLock()) {
@@ -40,7 +44,10 @@ class Application {
   }
 
   private registerListeners(): void {
-    app.on('will-quit', () => abortAllRuns());
+    app.on('will-quit', () => {
+      abortAllRuns();
+      this.confirmGateway?.dispose();
+    });
 
     app.on('second-instance', () => {
       if (this.mainWindow) {
@@ -84,6 +91,7 @@ class Application {
     }
 
     this.registerIpcHandlers();
+    this.configureToolSandbox();
     if (this.db) {
       const tools = new DefaultToolRegistry();
       tools.register(nowTool);
@@ -96,11 +104,33 @@ class Application {
       tools.register(webSearchTool);
       for (const tool of createDbTools(this.db)) tools.register(tool);
       for (const tool of createCalendarTools(this.db)) tools.register(tool);
-      registerAgentIpc({
+      this.confirmGateway = registerAgentIpc({
         configStore: new AgentConfigStore(this.db),
         createProvider: () => (process.env.TTY_MOCK === '1' ? new MockProvider() : new OpenAIProvider()),
         tools,
       });
+    }
+  }
+
+  /**
+   * 工具可读写的目录边界。默认只放开用户主目录与常用文档目录，
+   * 不含应用数据目录（那里有数据库与安全存储相关文件）。
+   */
+  private configureToolSandbox(): void {
+    try {
+      const extras: string[] = [];
+      for (const name of ['documents', 'downloads', 'desktop'] as const) {
+        try {
+          extras.push(app.getPath(name));
+        } catch {
+          // 某些平台取不到该目录，忽略即可
+        }
+      }
+      const roots = [os.homedir(), ...extras];
+      configureSandboxRoots({ read: roots, write: roots });
+    } catch (err) {
+      // 拿不到边界就保持「全部拒绝」，绝不放开无限制的路径权限
+      console.error('Tool sandbox not configured:', err);
     }
   }
 

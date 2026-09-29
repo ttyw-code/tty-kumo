@@ -15,6 +15,7 @@ export const webSearchTool: Tool = {
       },
       required: ['q'],
     },
+    risk: 'safe',
   },
   async execute(args: unknown, ctx) {
     const { q, limit } = args as { q?: unknown; limit?: unknown };

@@ -5,6 +5,7 @@ import Header from '@/renderer/src/components/header/index';
 import Message from '@/renderer/src/components/message/index';
 import ChatInput from '@/renderer/src/components/chatInput/index';
 import ConfigModal from '@/renderer/src/components/configModal/index';
+import ToolConfirmModal from '@/renderer/src/components/toolConfirm/index';
 
 const App: React.FC = () => {
   const expanded = useStore((store) => store.expanded);
@@ -57,6 +58,7 @@ const App: React.FC = () => {
         <ChatInput onSend={sendMessage} disabled={!!streaming} />
       </div>
       <ConfigModal open={configOpen} onOpenChange={setConfigOpen} />
+      <ToolConfirmModal />
     </div>
   );
 };

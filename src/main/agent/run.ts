@@ -2,7 +2,9 @@ import type { WebContents } from 'electron';
 import { CancellationTokenSource } from '@/base/cancellation';
 import { IPC, type AgentConfig, type AgentStreamEvent } from '@/common/ipc';
 import type { ChatProvider, ChatRequest, LLMMessage, LLMError } from './llm/provider';
+import { toOpenAITool } from './llm/provider';
 import type { ToolRegistry } from './tools/types';
+import type { ToolConfirmGateway } from './confirm';
 
 export type RunStatus = 'running' | 'done' | 'aborted' | 'error';
 
@@ -12,6 +14,8 @@ export interface Run {
   wc: WebContents;
   status: RunStatus;
   cts: CancellationTokenSource;
+  /** 工具确认网关：危险工具执行前在此挂起等待用户答复 */
+  gateway: ToolConfirmGateway;
   startedAt: number;
   finishedAt?: number;
 }
@@ -29,6 +33,8 @@ function send(wc: WebContents, evt: AgentStreamEvent): void {
 function finishRun(run: Run, status: RunStatus): void {
   run.status = status;
   run.finishedAt = Date.now();
+  // 收尾时兜底清理该 run 上未决的确认请求，避免句柄泄漏
+  run.gateway.cancelRun(run.runId);
   runs.delete(run.runId);
   runByChat.delete(run.chatId);
 }
@@ -64,18 +70,21 @@ async function pump(
   let yieldedAny = false;
   let toolRounds = 0;
 
+  const abort = () => {
+    finishRun(run, 'aborted');
+    send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+  };
+
   loop: for (let attempt = 0; ; attempt++) {
     if (run.cts.token.isCancellationRequested) {
-      finishRun(run, 'aborted');
-      send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+      abort();
       return;
     }
 
     try {
       for await (const delta of provider.chat(req)) {
         if (run.cts.token.isCancellationRequested) {
-          finishRun(run, 'aborted');
-          send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+          abort();
           return;
         }
         if (delta.text) {
@@ -106,8 +115,7 @@ async function pump(
             });
             for (const tc of toolCalls) {
               if (run.cts.token.isCancellationRequested) {
-                finishRun(run, 'aborted');
-                send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+                abort();
                 return;
               }
               send(run.wc, {
@@ -124,6 +132,16 @@ async function pump(
                   runId: run.runId,
                   chatId: run.chatId,
                   signal,
+                  confirm: (hint?: string) =>
+                    run.gateway.request({
+                      runId: run.runId,
+                      chatId: run.chatId,
+                      wc: run.wc,
+                      toolCallId: tc.id,
+                      toolName: tc.name,
+                      toolArgs: tc.arguments,
+                      hint,
+                    }),
                 });
               } catch (err) {
                 result = `工具执行失败：${err instanceof Error ? err.message : String(err)}`;
@@ -159,8 +177,7 @@ async function pump(
       return;
     } catch (err) {
       if (run.cts.token.isCancellationRequested) {
-        finishRun(run, 'aborted');
-        send(run.wc, { runId: run.runId, chatId: run.chatId, kind: 'aborted' });
+        abort();
         return;
       }
       const code =
@@ -208,6 +225,7 @@ export function createRun(opts: {
   runId: string;
   chatId: string;
   wc: WebContents;
+  gateway: ToolConfirmGateway;
 }): Run {
   const run: Run = {
     ...opts,
@@ -235,7 +253,7 @@ export function startRun(opts: {
     baseUrl: config.baseUrl,
     apiKey,
     signal: tokenToSignal(run.cts),
-    tools: registry.list(),
+    tools: registry.list().map(toOpenAITool),
   };
   setImmediate(() => {
     void pump(run, provider, registry, req);
@@ -246,6 +264,7 @@ export function cleanupRun(runId: string): void {
   const run = runs.get(runId);
   if (!run) return;
   if (run.status === 'running') run.cts.cancel();
+  run.gateway.cancelRun(runId);
   runs.delete(runId);
   runByChat.delete(run.chatId);
 }
