@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { generateUuid } from '@/base/static/uuid';
+import { asIPCResult, IPC } from '@/common/ipc';
 import { launchWorker } from '@/main/database/worker-launcher';
 import { DBPersister } from '@/main/database/persister';
 import type { IDBPersister } from '@/main/database/types';
@@ -211,13 +212,21 @@ class Application {
   }
 
   private registerIpcHandlers(): void {
-    ipcMain.handle('app:quit', () => app.quit());
-    ipcMain.handle('app:window:minimize', () => {
-      BrowserWindow.getFocusedWindow()?.minimize();
-    });
-    ipcMain.handle('app:window:close', () => {
-      BrowserWindow.getFocusedWindow()?.hide();
-    });
+    ipcMain.handle(IPC.appQuit, () =>
+      asIPCResult(() => {
+        app.quit();
+      }),
+    );
+    ipcMain.handle(IPC.appWindowMinimize, () =>
+      asIPCResult(() => {
+        BrowserWindow.getFocusedWindow()?.minimize();
+      }),
+    );
+    ipcMain.handle(IPC.appWindowClose, () =>
+      asIPCResult(() => {
+        BrowserWindow.getFocusedWindow()?.hide();
+      }),
+    );
   }
 }
 

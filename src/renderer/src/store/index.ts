@@ -1,6 +1,14 @@
 import { create } from 'zustand';
 import { Theme, initialTheme, applyTheme } from './theme-context';
-import type { AgentConfig, AgentStreamEvent } from '@/common/ipc';
+import {
+  IPC,
+  IPCChannelError,
+  type ActiveRun,
+  type AgentConfig,
+  type AgentStreamEvent,
+  type IClientChannel,
+  type StartRunResult,
+} from '@/common/ipc';
 import { DEFAULT_CHAT_TITLE, type ChatRecord, type ChatSummary, type StoredMessage } from '@/common/session';
 import { generateUuid } from '@/base/static/uuid';
 
@@ -48,6 +56,16 @@ interface Store {
 
 function nextId(): string {
   return generateUuid();
+}
+
+/**
+ * IPC 通道取用点。preload 未注入时抛错 —— 由调用方决定是静默降级
+ * 还是暴露给用户（多数读取路径本来就包在 try/catch 里）。
+ */
+function channel(): IClientChannel {
+  const ch = window.ipcChannel;
+  if (!ch) throw new IPCChannelError('unknown', 'IPC 通道不可用：preload 未注入');
+  return ch;
 }
 
 function toSummary(record: ChatRecord): ChatSummary {
@@ -128,24 +146,26 @@ export const useStore = create<Store>((set, get) => ({
   config: null,
   loadConfig: async () => {
     try {
-      const config = await window.agentBridge!.configGet();
+      const config = await channel().call<AgentConfig>(IPC.configGet);
       set({ config });
     } catch {
       // 主进程不可用时保持未配置状态
     }
   },
   saveConfig: async (cfg) => {
-    const config = await window.agentBridge!.configSet(cfg);
+    const config = await channel().call<AgentConfig>(IPC.configSet, cfg);
     set({ config });
   },
 
   chats: [],
   activeChatId: null,
   loadChats: async () => {
-    const bridge = window.agentBridge;
-    if (!bridge) return;
+    if (!window.ipcChannel) return;
     try {
-      const [chats, runs] = await Promise.all([bridge.chatList(), bridge.runsList()]);
+      const [chats, runs] = await Promise.all([
+        channel().call<ChatSummary[]>(IPC.chatList),
+        channel().call<ActiveRun[]>(IPC.runsList),
+      ]);
 
       // 窗口重载后主进程的 run 还在跑，把流式状态接回来，否则事件会因为
       // 「找不到 streaming 状态」被全部丢弃
@@ -169,7 +189,7 @@ export const useStore = create<Store>((set, get) => ({
     set({ activeChatId: id });
     if (get().messagesByChat[id]) return;
     try {
-      const record = await window.agentBridge?.chatLoad(id);
+      const record = await window.ipcChannel?.call<ChatRecord | null>(IPC.chatLoad, id);
       if (!record) return;
       set((state) => ({
         messagesByChat: { ...state.messagesByChat, [id]: record.messages },
@@ -180,10 +200,9 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   newChat: async () => {
-    const bridge = window.agentBridge;
-    if (!bridge) return;
+    if (!window.ipcChannel) return;
     try {
-      const record = await bridge.chatCreate();
+      const record = await channel().call<ChatRecord>(IPC.chatCreate);
       set((state) => ({
         chats: [toSummary(record), ...state.chats],
         activeChatId: record.id,
@@ -195,11 +214,10 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   deleteChat: async (id) => {
-    const bridge = window.agentBridge;
     const streaming = get().streamingByChat[id];
     try {
-      if (streaming?.runId) await bridge?.abort(streaming.runId);
-      await bridge?.chatDelete(id);
+      if (streaming?.runId) await channel().call<void>(IPC.abort, streaming.runId);
+      await channel().call<void>(IPC.chatDelete, id);
     } catch {
       // 主进程侧删除失败也要清掉本地投影，否则留下一个点不开的会话
     }
@@ -230,7 +248,10 @@ export const useStore = create<Store>((set, get) => ({
 
   renameChat: async (id, title) => {
     try {
-      const summary = await window.agentBridge?.chatRename(id, title);
+      const summary = await channel().call<ChatSummary | null>(IPC.chatRename, {
+        chatId: id,
+        title,
+      });
       if (!summary) return;
       set((state) => ({ chats: state.chats.map((c) => (c.id === id ? summary : c)) }));
     } catch {
@@ -251,9 +272,8 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   sendMessage: async (content) => {
-    const bridge = window.agentBridge;
     const { activeChatId } = get();
-    if (!bridge || !activeChatId) return;
+    if (!window.ipcChannel || !activeChatId) return;
     if (get().streamingByChat[activeChatId]) return;
     const text = content.trim();
     if (!text) return;
@@ -277,7 +297,7 @@ export const useStore = create<Store>((set, get) => ({
 
     try {
       // 历史由主进程自己从仓储读取，渲染端不再上送
-      const { runId, assistantId } = await bridge.send({
+      const { runId, assistantId } = await channel().call<StartRunResult>(IPC.send, {
         content: text,
         chatId,
         messageId: userMessage.id,
@@ -381,6 +401,6 @@ export const useStore = create<Store>((set, get) => ({
     const { activeChatId, streamingByChat } = get();
     if (!activeChatId) return;
     const st = streamingByChat[activeChatId];
-    if (st?.runId) void window.agentBridge!.abort(st.runId);
+    if (st?.runId) void channel().call<void>(IPC.abort, st.runId);
   },
 }));

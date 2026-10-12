@@ -1,5 +1,12 @@
 import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import { IPC, type SendAgentMessage, type StartRunResult, type ToolConfirmReply } from '@/common/ipc';
+import {
+  asIPCResult,
+  IPC,
+  IPCChannelError,
+  type SendAgentMessage,
+  type StartRunResult,
+  type ToolConfirmReply,
+} from '@/common/ipc';
 import { isValidChatId, isValidEntityId, type StoredMessage } from '@/common/session';
 import type { AgentConfigStore } from './config';
 import type { ChatProvider } from './llm/provider';
@@ -28,29 +35,38 @@ export function registerAgentIpc(deps: {
   const needsConfig = provider.requiresConfig !== false;
   const gateway = new ToolConfirmGateway();
 
-  ipcMain.handle(IPC.send, async (event: IpcMainInvokeEvent, payload: SendAgentMessage): Promise<StartRunResult> => {
+  /**
+   * 发起一轮对话。校验失败一律抛 `IPCChannelError` 带明确 code ——
+   * 这些 code 会经信封原样到达渲染端，供它区分「该提示用户」还是「该重试」。
+   */
+  const handleSend = async (
+    event: IpcMainInvokeEvent,
+    payload: SendAgentMessage,
+  ): Promise<StartRunResult> => {
     if (
       !payload ||
       typeof payload.content !== 'string' ||
       typeof payload.chatId !== 'string'
     ) {
-      throw new Error('参数不合法：需要 { content, chatId }');
+      throw new IPCChannelError('invalid_payload', '参数不合法：需要 { content, chatId }');
     }
     const content = payload.content.trim();
-    if (!content) throw new Error('消息内容不能为空');
-    if (!isValidChatId(payload.chatId)) throw new Error('参数不合法：chatId 格式错误');
+    if (!content) throw new IPCChannelError('empty_content', '消息内容不能为空');
+    if (!isValidChatId(payload.chatId)) {
+      throw new IPCChannelError('invalid_chat_id', `chatId 格式不合法：${payload.chatId}`);
+    }
 
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) throw new Error('无法找到发送窗口');
+    if (!win) throw new IPCChannelError('no_window', '无法找到发送窗口');
 
     const { chatId } = payload;
     if (isChatRunning(chatId)) {
-      throw new Error('该会话已有进行中的回复，请等待完成或停止后再发送');
+      throw new IPCChannelError('chat_busy', '该会话已有进行中的回复，请等待完成或停止后再发送');
     }
 
     // 真相源在主进程：历史从仓储读取，渲染端传来的内容不可信、也不再需要
     const record = await deps.sessions.load(chatId);
-    if (!record) throw new Error('会话不存在或已被删除');
+    if (!record) throw new IPCChannelError('chat_not_found', '会话不存在或已被删除');
 
     const runId = generateUuid();
     const assistantId = generateUuid();
@@ -110,51 +126,94 @@ export function registerAgentIpc(deps: {
     const apiKey = needsConfig ? await deps.configStore.getDecryptedKey() : '';
     startRun({ run, provider, registry: deps.tools, config, apiKey: apiKey ?? '', messages });
     return { runId, assistantId };
-  });
+  };
 
-  ipcMain.handle(IPC.abort, (_event, runId: string) => {
-    abortRun(runId);
-    // 中止答复中途杀掉 run，确认请求不能悬着
-    gateway.cancelRun(runId);
-  });
+  ipcMain.handle(IPC.send, (event: IpcMainInvokeEvent, payload: SendAgentMessage) =>
+    asIPCResult(() => handleSend(event, payload)),
+  );
+
+  ipcMain.handle(IPC.abort, (_event, runId: string) =>
+    asIPCResult(() => {
+      if (typeof runId !== 'string' || !runId) {
+        throw new IPCChannelError('invalid_payload', 'runId 不合法');
+      }
+      abortRun(runId);
+      // 中止答复中途杀掉 run，确认请求不能悬着
+      gateway.cancelRun(runId);
+    }),
+  );
 
   ipcMain.on(IPC.toolConfirmReply, (_event, reply: ToolConfirmReply) => {
     gateway.reply(reply);
   });
 
-  ipcMain.handle(IPC.chatList, () => deps.sessions.list());
+  // 以下通道统一走 IPCResult 信封：失败返回 {ok:false, error} 而不是抛异常，
+  // 这样 code 才能活着跨过 IPC 边界（见 docs/specs/ipc-channel.md）
+  const requireChatId = (chatId: unknown): string => {
+    if (!isValidChatId(chatId)) {
+      throw new IPCChannelError('invalid_chat_id', `chatId 格式不合法：${String(chatId)}`);
+    }
+    return chatId;
+  };
 
-  ipcMain.handle(IPC.chatLoad, (_event, chatId: string) => {
-    if (!isValidChatId(chatId)) return null;
-    return deps.sessions.load(chatId);
-  });
+  ipcMain.handle(IPC.chatList, () => asIPCResult(() => deps.sessions.list()));
 
-  ipcMain.handle(IPC.chatCreate, (_event, title?: string) =>
-    deps.sessions.create(typeof title === 'string' ? title : undefined),
+  ipcMain.handle(IPC.chatLoad, (_event, chatId: string) =>
+    asIPCResult(() => deps.sessions.load(requireChatId(chatId))),
   );
 
-  ipcMain.handle(IPC.chatRename, (_event, chatId: string, title: string) => {
-    if (!isValidChatId(chatId) || typeof title !== 'string') return null;
-    return deps.sessions.rename(chatId, title);
-  });
+  ipcMain.handle(IPC.chatCreate, (_event, title?: string) =>
+    asIPCResult(() => deps.sessions.create(typeof title === 'string' ? title : undefined)),
+  );
 
-  ipcMain.handle(IPC.chatDelete, async (_event, chatId: string) => {
-    if (!isValidChatId(chatId)) return;
-    // 先掐掉进行中的 run，否则它的收尾逻辑会继续往被删的会话里写
-    abortRunsByChat(chatId);
-    await deps.sessions.remove(chatId);
-  });
+  // 通道参数统一是**单个**可结构化克隆的值（channel 契约只接受一个 arg），
+  // 因此多参数命令要打包成对象
+  ipcMain.handle(IPC.chatRename, (_event, payload: { chatId: string; title: string }) =>
+    asIPCResult(() => {
+      if (!payload || typeof payload.title !== 'string') {
+        throw new IPCChannelError('invalid_payload', '参数不合法：需要 { chatId, title }');
+      }
+      requireChatId(payload.chatId);
+      return deps.sessions.rename(payload.chatId, payload.title);
+    }),
+  );
 
-  ipcMain.handle(IPC.runsList, () => listActiveRuns());
+  ipcMain.handle(IPC.chatDelete, (_event, chatId: string) =>
+    asIPCResult(async () => {
+      requireChatId(chatId);
+      // 先掐掉进行中的 run，否则它的收尾逻辑会继续往被删的会话里写
+      abortRunsByChat(chatId);
+      await deps.sessions.remove(chatId);
+    }),
+  );
 
-  ipcMain.handle(IPC.configGet, async () => ({
-    ...(await deps.configStore.get()),
-    mock: !needsConfig,
-  }));
+  ipcMain.handle(IPC.runsList, () => asIPCResult(() => listActiveRuns()));
 
-  ipcMain.handle(IPC.configSet, (_event, cfg: { baseUrl: string; model: string; apiKey: string }) => {
-    return deps.configStore.set(cfg);
-  });
+  ipcMain.handle(IPC.configGet, () =>
+    asIPCResult(async () => ({
+      ...(await deps.configStore.get()),
+      mock: !needsConfig,
+    })),
+  );
+
+  ipcMain.handle(
+    IPC.configSet,
+    (_event, cfg: { baseUrl: string; model: string; apiKey: string }) =>
+      asIPCResult(() => {
+        if (
+          !cfg ||
+          typeof cfg.baseUrl !== 'string' ||
+          typeof cfg.model !== 'string' ||
+          typeof cfg.apiKey !== 'string'
+        ) {
+          throw new IPCChannelError(
+            'invalid_payload',
+            '参数不合法：需要 { baseUrl, model, apiKey }',
+          );
+        }
+        return deps.configStore.set(cfg);
+      }),
+  );
 
   return gateway;
 }

@@ -41,7 +41,20 @@ export default defineConfig({
         'node:url',
         'node:os',
         'node:crypto',
+        'node:events',
+        'node:util',
+        'node:child_process',
+        'node:worker_threads',
+        'node:stream',
+        'node:assert',
+        'node:buffer',
       ],
+      // 共享 chunk 用固定名。默认按内容 hash 命名（`ipc-BYeFxGKH.cjs`），
+      // 配合 emptyOutDir:false 会不断累积死文件，而 electron-builder 用的是
+      // `out/**/*` glob —— 死 chunk 会被一起打进安装包
+      output: {
+        chunkFileNames: 'chunk-[name].cjs',
+      },
     },
   },
 });

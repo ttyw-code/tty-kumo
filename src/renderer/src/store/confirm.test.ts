@@ -1,28 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from './index';
 import type { AgentBridge } from '@/main/preload';
-import type { AgentStreamEvent } from '@/common/ipc';
+import { IPC, type AgentStreamEvent, type IClientChannel } from '@/common/ipc';
 
+/** 单向答复仍走 agentBridge */
 const confirmTool = vi.fn();
-const abort = vi.fn();
-
-const chatDelete = vi.fn().mockResolvedValue(undefined);
+/** 请求-响应型调用已经全部走 ipcChannel，参数从 call 的实参上断言 */
+const call = vi.fn().mockResolvedValue(undefined);
 
 function bridge(): AgentBridge {
-  return {
-    send: vi.fn().mockResolvedValue({ runId: 'run-1', assistantId: 'a1' }),
-    abort,
-    onStream: vi.fn(),
-    confirmTool,
-    configGet: vi.fn(),
-    configSet: vi.fn(),
-    chatList: vi.fn().mockResolvedValue([]),
-    chatLoad: vi.fn().mockResolvedValue(null),
-    chatCreate: vi.fn(),
-    chatRename: vi.fn(),
-    chatDelete,
-    runsList: vi.fn().mockResolvedValue([]),
-  } as unknown as AgentBridge;
+  return { onStream: vi.fn(), confirmTool } as unknown as AgentBridge;
+}
+
+function channel(): IClientChannel {
+  return { call, listen: vi.fn() } as unknown as IClientChannel;
 }
 
 /** 构造「某会话正在流式输出」的初始态，handleStreamEvent 才会处理事件 */
@@ -53,9 +44,10 @@ function confirmEvent(overrides: Partial<AgentStreamEvent> = {}): AgentStreamEve
 
 beforeEach(() => {
   confirmTool.mockReset();
-  abort.mockReset();
-  chatDelete.mockClear();
+  call.mockClear();
+  call.mockResolvedValue(undefined);
   window.agentBridge = bridge();
+  window.ipcChannel = channel();
 });
 
 describe('工具确认队列', () => {
@@ -125,7 +117,8 @@ describe('工具确认队列', () => {
     await useStore.getState().deleteChat('chat-1');
 
     expect(useStore.getState().confirmQueue).toHaveLength(0);
-    // 会话正在流式输出，删除时顺带中止 run
-    expect(abort).toHaveBeenCalledWith('run-1');
+    // 会话正在流式输出：删除前先中止 run，再删记录
+    expect(call).toHaveBeenCalledWith(IPC.abort, 'run-1');
+    expect(call).toHaveBeenCalledWith(IPC.chatDelete, 'chat-1');
   });
 });

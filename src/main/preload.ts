@@ -1,75 +1,102 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import type {
-  ActiveRun,
-  AgentConfig,
-  AgentStreamEvent,
-  SendAgentMessage,
-  StartRunResult,
-  ToolConfirmReply,
+import {
+  EVENT_CHANNELS,
+  INVOKE_COMMANDS,
+  IPC,
+  IPCChannelError,
+  isEnvelopeCommand,
+  isIPCResult,
+  parseElectronError,
+  type AgentStreamEvent,
+  type IClientChannel,
+  type ToolConfirmReply,
 } from '@/common/ipc';
-import type { ChatRecord, ChatSummary } from '@/common/session';
+import type { CancellationToken } from '@/base/cancellation';
+import type { Event } from '@/base/event';
 
-const SEND = 'agent:chat:send';
-const ABORT = 'agent:chat:abort';
-const STREAM = 'agent:stream';
-const CONFIG_GET = 'agent:config:get';
-const CONFIG_SET = 'agent:config:set';
-const TOOL_CONFIRM_REPLY = 'agent:tool:confirm:reply';
-const CHAT_LIST = 'agent:chat:list';
-const CHAT_LOAD = 'agent:chat:load';
-const CHAT_CREATE = 'agent:chat:create';
-const CHAT_RENAME = 'agent:chat:rename';
-const CHAT_DELETE = 'agent:chat:delete';
-const RUNS_LIST = 'agent:runs:list';
+// 通道名唯一来源是 common/ipc.ts —— 这里不再手写字符串
+const STREAM = IPC.stream;
+const TOOL_CONFIRM_REPLY = IPC.toolConfirmReply;
 
+/**
+ * 只剩下两类**非请求-响应**能力：
+ * - `onStream`：主 → 渲染的单向推送。订阅式的「返回取消函数」比 IDisposable
+ *   对象更贴合 React 的 cleanup 写法，且免去跨 contextBridge 代理对象的风险
+ * - `confirmTool`：fire-and-forget，本来就没有返回值可等
+ *
+ * 其余请求-响应型通道一律走 `window.ipcChannel`，不要再往这里加方法。
+ */
 export interface AgentBridge {
-  send: (payload: SendAgentMessage) => Promise<StartRunResult>;
-  abort: (runId: string) => Promise<void>;
   onStream: (callback: (evt: AgentStreamEvent) => void) => () => void;
-  configGet: () => Promise<AgentConfig>;
-  configSet: (cfg: { baseUrl: string; model: string; apiKey: string }) => Promise<AgentConfig>;
-  /** 答复主进程的工具执行确认请求 */
   confirmTool: (reply: ToolConfirmReply) => void;
-
-  /** 会话列表（摘要，按更新时间倒序） */
-  chatList: () => Promise<ChatSummary[]>;
-  /** 读取单个会话的完整消息；不存在返回 null */
-  chatLoad: (chatId: string) => Promise<ChatRecord | null>;
-  chatCreate: (title?: string) => Promise<ChatRecord>;
-  chatRename: (chatId: string, title: string) => Promise<ChatSummary | null>;
-  chatDelete: (chatId: string) => Promise<void>;
-  /** 窗口重载后用它重新接上仍在进行的 run */
-  runsList: () => Promise<ActiveRun[]>;
 }
 
-contextBridge.exposeInMainWorld('appBridge', {
-  quit: () => ipcRenderer.invoke('app:quit'),
-  minimize: () => ipcRenderer.invoke('app:window:minimize'),
-  close: () => ipcRenderer.invoke('app:window:close'),
-});
+/**
+ * `IClientChannel` 的 Electron 实现。
+ *
+ * 两个约束：
+ * - **白名单**：只放行 `INVOKE_COMMANDS` / `EVENT_CHANNELS`。contextIsolation 下
+ *   没有这道闸，泛型 call 就等于把整个 ipcRenderer 交给渲染进程
+ * - **错误还原**：已迁信封的通道能保住 `code`（目前全部 invoke 通道都已迁）
+ */
+const channel: IClientChannel = {
+  async call<T>(
+    command: string,
+    arg?: unknown,
+    cancellationToken?: CancellationToken,
+  ): Promise<T> {
+    if (!INVOKE_COMMANDS.includes(command)) {
+      throw new IPCChannelError('unknown', `命令不在白名单内：${command}`, command);
+    }
+    // 取消目前仍走 agent:chat:abort(runId)，token 只做「调用前已取消」的短路。
+    // 真正的 mid-flight 取消需要 requestId ↔ token 映射，见 docs/specs/ipc-channel.md
+    if (cancellationToken?.isCancellationRequested) {
+      throw new IPCChannelError('unknown', '调用已被取消', command);
+    }
+
+    try {
+      const raw = await ipcRenderer.invoke(command, arg);
+      if (isEnvelopeCommand(command) && isIPCResult(raw)) {
+        if (!raw.ok) throw IPCChannelError.from(raw.error, command);
+        return raw.value as T;
+      }
+      return raw as T;
+    } catch (err) {
+      throw parseElectronError(err, command);
+    }
+  },
+
+  listen<T>(event: string, _arg?: unknown): Event<T> {
+    if (!EVENT_CHANNELS.includes(event)) {
+      throw new IPCChannelError('unknown', `事件通道不在白名单内：${event}`, event);
+    }
+    // Electron 的通道不支持按参数过滤，arg 目前只是契约占位
+    return (listener) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, payload: T) => {
+        listener(payload);
+      };
+      ipcRenderer.on(event, wrapped);
+      return {
+        dispose: () => {
+          ipcRenderer.removeListener(event, wrapped);
+        },
+      };
+    };
+  },
+};
+
+contextBridge.exposeInMainWorld('ipcChannel', channel);
 
 contextBridge.exposeInMainWorld('agentBridge', {
-  send: (payload: SendAgentMessage) => ipcRenderer.invoke(SEND, payload),
-  abort: (runId: string) => ipcRenderer.invoke(ABORT, runId),
   onStream: (callback: (evt: AgentStreamEvent) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, evt: AgentStreamEvent) => callback(evt);
     ipcRenderer.on(STREAM, listener);
     return () => ipcRenderer.removeListener(STREAM, listener);
   },
-  configGet: () => ipcRenderer.invoke(CONFIG_GET),
-  configSet: (cfg: { baseUrl: string; model: string; apiKey: string }) =>
-    ipcRenderer.invoke(CONFIG_SET, cfg),
   confirmTool: (reply: ToolConfirmReply) => {
     ipcRenderer.send(TOOL_CONFIRM_REPLY, reply);
   },
-
-  chatList: () => ipcRenderer.invoke(CHAT_LIST),
-  chatLoad: (chatId: string) => ipcRenderer.invoke(CHAT_LOAD, chatId),
-  chatCreate: (title?: string) => ipcRenderer.invoke(CHAT_CREATE, title),
-  chatRename: (chatId: string, title: string) => ipcRenderer.invoke(CHAT_RENAME, chatId, title),
-  chatDelete: (chatId: string) => ipcRenderer.invoke(CHAT_DELETE, chatId),
-  runsList: () => ipcRenderer.invoke(RUNS_LIST),
-});
+} satisfies AgentBridge);
 
 contextBridge.exposeInMainWorld('webUtils', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

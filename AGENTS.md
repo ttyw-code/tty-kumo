@@ -58,8 +58,21 @@ src/
 - `Main.start()` is essentially a no-op (empty `startup()`)
 - Real init happens in `app.whenReady()` → `initApp()` → `createWindow()` → `createTray()`
 - Window uses frameless/transparent mode with `contextIsolation: true` and `sandbox: true`
-- IPC channels: `app:quit`, `app:window:minimize`, `app:window:close` — exposed via `contextBridge` as `window.appBridge`
+- Window controls: `app:quit`, `app:window:minimize`, `app:window:close` — exposed via `contextBridge` as `window.appBridge`
 - `platform/window/window.ts` has a `BaseWindow` wrapper class but `main.ts` uses raw `BrowserWindow` directly
+
+## IPC
+
+通道名唯一来源是 `src/common/ipc.ts` 的 `IPC` 常量 —— **不要在 preload 或 handler 里手写字符串**，`common/ipc.test.ts` 会检查。
+
+- **所有请求-响应调用走 `window.ipcChannel.call(IPC.xxx, arg)`**。13 个 invoke 通道已全部迁移；`AgentBridge` 只剩 `onStream`（推送订阅）与 `confirmTool`（单向），**不要再往上加具名方法**
+- **通道参数必须是单个可结构化克隆的值**。多参数命令打包成对象：`call(IPC.chatRename, { chatId, title })`，不能 `call(IPC.chatRename, chatId, title)`
+- **preload 里有命令白名单**（`INVOKE_COMMANDS`/`EVENT_CHANNELS`/`ONE_WAY_COMMANDS`）—— contextIsolation 下泛型 call 不收口就等于把整个 `ipcRenderer` 交给渲染进程，别为了省事删掉
+- 跨进程错误走 `IPCResult` 信封（`asIPCResult` 包、客户端 `call` 解）：直接 throw 会被 Electron 拼成一坨字符串、`code` 全丢
+- `Event<T>` 统一来自 `@/base/event`，不要再就地定义
+- 迁移步骤、错误 code 表与已知边界见 `docs/specs/ipc-channel.md`
+
+构建注意：`common/ipc.ts` 被 main 与 preload 共享后会抽出 `out/src/main/chunk-ipc.cjs`，preload 用相对路径 require 它。`chunkFileNames` 已固定为 `chunk-[name].cjs` —— **别改回默认的内容 hash 命名**，配合 `emptyOutDir: false` 会不断累积死文件，而打包用的是 `out/**/*` glob（死 chunk 会进安装包）。**若改成显式列文件必须带上 chunk**。
 
 ## Testing
 

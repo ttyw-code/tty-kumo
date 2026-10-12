@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { IPC } from '@/common/ipc';
 import { useStore } from '@/renderer/src/store';
 import Sidebar from '@/renderer/src/components/sidebar/index';
 import Header from '@/renderer/src/components/header/index';
@@ -16,11 +17,8 @@ const App: React.FC = () => {
   const [configOpen, setConfigOpen] = useState(false);
 
   function clickExit() {
-    if (window.appBridge?.close) {
-      window.appBridge.close();
-    } else {
-      console.warn('appBridge not available, close skipped');
-    }
+    // 窗口控制也走统一通道，不再保留 appBridge 这个额外命名空间
+    void window.ipcChannel?.call(IPC.appWindowClose);
   }
 
   useEffect(() => {

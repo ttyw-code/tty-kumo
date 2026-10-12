@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { GlobalIdleValue } from '@/base/async.js';
+import type { Event } from '@/base/event.js';
 import { DisposableStore, dispose, IDisposable, isDisposable, toDisposable } from '@/base/lifecycle.js';
 import { SyncDescriptor, SyncDescriptor0 } from '@/platform/instantiation/common/descriptors.js';
 import { Graph } from '@/platform/instantiation/common/graph.js';
@@ -13,9 +14,7 @@ import { LinkedList } from '@/base/linkList.js';
 
 
 
-export interface Event<T> {
-  (listener: (e: T) => unknown, thisArgs?: any, disposables?: IDisposable[] | DisposableStore): IDisposable;
-}
+// Event<T> 统一由 @/base/event 提供，此处不再重复定义
 
 // TRACING
 const _enableAllTracing = false
