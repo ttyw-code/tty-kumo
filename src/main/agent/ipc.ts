@@ -3,9 +3,9 @@ import {
   asIPCResult,
   IPC,
   IPCChannelError,
+  type RendererRequestReply,
   type SendAgentMessage,
   type StartRunResult,
-  type ToolConfirmReply,
 } from '@/common/ipc';
 import { isValidChatId, isValidEntityId, type StoredMessage } from '@/common/session';
 import type { AgentConfigStore } from './config';
@@ -21,6 +21,7 @@ import {
   startRun,
 } from './run';
 import { ToolConfirmGateway } from './confirm';
+import { RendererRequester } from './renderer-request';
 import type { ISessionStore } from './session';
 import { toLLMMessages } from './history';
 import { generateUuid } from '@/base/static/uuid';
@@ -33,7 +34,9 @@ export function registerAgentIpc(deps: {
 }): ToolConfirmGateway {
   const provider = deps.createProvider();
   const needsConfig = provider.requiresConfig !== false;
-  const gateway = new ToolConfirmGateway();
+  // 反向请求器：主进程 → 渲染端。工具确认是它的第一个使用者
+  const requester = new RendererRequester();
+  const gateway = new ToolConfirmGateway(requester);
 
   /**
    * 发起一轮对话。校验失败一律抛 `IPCChannelError` 带明确 code ——
@@ -143,8 +146,9 @@ export function registerAgentIpc(deps: {
     }),
   );
 
-  ipcMain.on(IPC.toolConfirmReply, (_event, reply: ToolConfirmReply) => {
-    gateway.reply(reply);
+  // 反向请求的答复入口（渲染端 → 主进程）
+  ipcMain.on(IPC.requestReply, (_event, payload: RendererRequestReply) => {
+    requester.reply(payload);
   });
 
   // 以下通道统一走 IPCResult 信封：失败返回 {ok:false, error} 而不是抛异常，

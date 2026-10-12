@@ -20,13 +20,14 @@ const ToolConfirmModal: React.FC = () => {
 
   useEffect(() => {
     setRemember(false);
-  }, [current?.confirmId]);
+  }, [current?.id]);
 
   const state = useOverlayState({ isOpen: !!current, onOpenChange: () => {} });
 
   const decide = (decision: 'allow' | 'deny') => {
-    if (!current?.confirmId) return;
-    resolveConfirm(current.confirmId, decision, decision === 'allow' && remember);
+    if (!current?.id) return;
+    // remember 的收敛在 store 里做（拒绝时不上报），这里原样传
+    resolveConfirm(current.id, decision, remember);
   };
 
   return (
@@ -38,7 +39,7 @@ const ToolConfirmModal: React.FC = () => {
             <Modal.Body>
               {current && (
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-content2">
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-surface-secondary">
                     <ShieldAlert size={16} className="mt-0.5 shrink-0 text-danger" />
                     <span className="text-sm">
                       {current.confirmHint ?? '该操作会对你的电脑产生改动，执行前请确认。'}
@@ -52,7 +53,7 @@ const ToolConfirmModal: React.FC = () => {
 
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted">参数</span>
-                    <pre className="text-xs font-mono whitespace-pre-wrap break-all bg-content2 rounded-lg p-2 max-h-48 overflow-y-auto">
+                    <pre className="text-xs font-mono whitespace-pre-wrap break-all bg-surface-secondary rounded-lg p-2 max-h-48 overflow-y-auto">
                       {formatArgs(current.toolArgs)}
                     </pre>
                   </div>

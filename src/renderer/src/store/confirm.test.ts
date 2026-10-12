@@ -1,124 +1,146 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from './index';
 import type { AgentBridge } from '@/main/preload';
-import { IPC, type AgentStreamEvent, type IClientChannel } from '@/common/ipc';
+import { IPC, type IClientChannel, type ToolConfirmAsk } from '@/common/ipc';
 
-/** 单向答复仍走 agentBridge */
-const confirmTool = vi.fn();
-/** 请求-响应型调用已经全部走 ipcChannel，参数从 call 的实参上断言 */
+/** 请求-响应型调用走 ipcChannel */
 const call = vi.fn().mockResolvedValue(undefined);
 
 function bridge(): AgentBridge {
-  return { onStream: vi.fn(), confirmTool } as unknown as AgentBridge;
+  return { onStream: vi.fn() } as unknown as AgentBridge;
 }
 
 function channel(): IClientChannel {
-  return { call, listen: vi.fn() } as unknown as IClientChannel;
+  return { call, listen: vi.fn(), register: vi.fn() } as unknown as IClientChannel;
 }
 
-/** 构造「某会话正在流式输出」的初始态，handleStreamEvent 才会处理事件 */
-function seed(chatId: string, runId: string | null = 'run-1'): void {
-  useStore.setState({
-    chats: [{ id: chatId, title: '会话', lastMessage: '', createdAt: 0, updatedAt: 0 }],
-    activeChatId: chatId,
-    messagesByChat: {
-      [chatId]: [{ id: 'a1', role: 'assistant', content: '', createdAt: 0 }],
-    },
-    streamingByChat: { [chatId]: { runId, assistantId: 'a1' } },
-    confirmQueue: [],
-  });
-}
-
-function confirmEvent(overrides: Partial<AgentStreamEvent> = {}): AgentStreamEvent {
+function ask(overrides: Partial<ToolConfirmAsk> = {}): ToolConfirmAsk {
   return {
     runId: 'run-1',
     chatId: 'chat-1',
-    kind: 'tool_confirm',
-    confirmId: 'cf-1',
+    toolCallId: 'tc-1',
     toolName: 'write_file',
     toolArgs: '{"path":"C:\\\\Users\\\\me\\\\a.txt","content":"x"}',
-    confirmHint: '将覆盖或新建你电脑上的一个文件，同名文件内容会丢失',
+    hint: '将覆盖或新建你电脑上的一个文件，同名文件内容会丢失',
     ...overrides,
   };
 }
 
+function seed(chatId: string): void {
+  useStore.setState({
+    chats: [{ id: chatId, title: '会话', lastMessage: '', createdAt: 0, updatedAt: 0 }],
+    activeChatId: chatId,
+    messagesByChat: { [chatId]: [] },
+    streamingByChat: {},
+    confirmQueue: [],
+  });
+}
+
 beforeEach(() => {
-  confirmTool.mockReset();
   call.mockClear();
   call.mockResolvedValue(undefined);
   window.agentBridge = bridge();
   window.ipcChannel = channel();
+  useStore.setState({ confirmQueue: [] });
 });
 
-describe('工具确认队列', () => {
-  it('收到 tool_confirm 时入队等待用户决定', () => {
+describe('工具确认（反向请求的响应侧）', () => {
+  it('主进程的确认请求会进队列等待用户决定', () => {
     seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent());
+    void useStore.getState().askToolConfirm(ask());
 
     const queue = useStore.getState().confirmQueue;
     expect(queue).toHaveLength(1);
     expect(queue[0].toolName).toBe('write_file');
+    expect(queue[0].chatId).toBe('chat-1');
     expect(queue[0].confirmHint).toContain('同名文件内容会丢失');
-    expect(confirmTool).not.toHaveBeenCalled();
   });
 
-  it('多个确认按到达顺序排队', () => {
+  it('用户放行后 Promise 兑现，队列清空', async () => {
     seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent({ confirmId: 'cf-1' }));
-    useStore.getState().handleStreamEvent(confirmEvent({ confirmId: 'cf-2' }));
+    const pending = useStore.getState().askToolConfirm(ask());
+    const id = useStore.getState().confirmQueue[0].id;
 
-    expect(useStore.getState().confirmQueue.map((e) => e.confirmId)).toEqual(['cf-1', 'cf-2']);
-  });
+    useStore.getState().resolveConfirm(id, 'allow', false);
 
-  it('放行时把决定回传主进程并出队', () => {
-    seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent());
-    useStore.getState().resolveConfirm('cf-1', 'allow', false);
-
-    expect(confirmTool).toHaveBeenCalledWith({
-      confirmId: 'cf-1',
-      decision: 'allow',
-      remember: false,
-    });
+    await expect(pending).resolves.toEqual({ decision: 'allow', remember: false });
     expect(useStore.getState().confirmQueue).toHaveLength(0);
   });
 
-  it('「不再询问」只在放行时生效，拒绝时不带 remember', () => {
+  it('用户拒绝时答复 deny', async () => {
     seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent());
-    useStore.getState().resolveConfirm('cf-1', 'deny', true);
+    const pending = useStore.getState().askToolConfirm(ask());
+    const id = useStore.getState().confirmQueue[0].id;
 
-    expect(confirmTool).toHaveBeenCalledWith({
-      confirmId: 'cf-1',
-      decision: 'deny',
-      remember: false,
-    });
+    useStore.getState().resolveConfirm(id, 'deny', false);
+
+    await expect(pending).resolves.toEqual({ decision: 'deny', remember: false });
   });
 
-  it('缺少 confirmId 的确认请求不进队列（无法答复，避免卡死）', () => {
+  it('「不再询问」只在放行时上报，拒绝时不带 remember', async () => {
     seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent({ confirmId: undefined }));
+    const allowPending = useStore.getState().askToolConfirm(ask());
+    useStore.getState().resolveConfirm(useStore.getState().confirmQueue[0].id, 'allow', true);
+    await expect(allowPending).resolves.toEqual({ decision: 'allow', remember: true });
 
+    const denyPending = useStore.getState().askToolConfirm(ask());
+    useStore.getState().resolveConfirm(useStore.getState().confirmQueue[0].id, 'deny', true);
+    await expect(denyPending).resolves.toEqual({ decision: 'deny', remember: false });
+  });
+
+  it('多个确认按到达顺序排队，各自独立兑现', async () => {
+    seed('chat-1');
+    const first = useStore.getState().askToolConfirm(ask({ toolName: 'write_file' }));
+    const second = useStore.getState().askToolConfirm(ask({ toolName: 'run_command' }));
+
+    const queue = useStore.getState().confirmQueue;
+    expect(queue.map((e) => e.toolName)).toEqual(['write_file', 'run_command']);
+
+    // 后到的先答复，互不影响
+    useStore.getState().resolveConfirm(queue[1].id, 'allow', false);
+    useStore.getState().resolveConfirm(queue[0].id, 'deny', false);
+
+    await expect(first).resolves.toEqual({ decision: 'deny', remember: false });
+    await expect(second).resolves.toEqual({ decision: 'allow', remember: false });
     expect(useStore.getState().confirmQueue).toHaveLength(0);
   });
 
-  it('不属于当前 run 的确认请求被忽略', () => {
-    seed('chat-1', 'run-1');
-    useStore.getState().handleStreamEvent(confirmEvent({ runId: 'run-2' }));
-
-    expect(useStore.getState().confirmQueue).toHaveLength(0);
-  });
-
-  it('删除会话时丢弃它挂着没答复的确认请求', async () => {
+  it('删除会话时把它挂着的确认请求按拒绝答复，不让主进程白等到超时', async () => {
     seed('chat-1');
-    useStore.getState().handleStreamEvent(confirmEvent({ chatId: 'chat-1' }));
+    const pending = useStore.getState().askToolConfirm(ask({ chatId: 'chat-1' }));
     expect(useStore.getState().confirmQueue).toHaveLength(1);
 
     await useStore.getState().deleteChat('chat-1');
 
+    await expect(pending).resolves.toEqual({ decision: 'deny', remember: false });
     expect(useStore.getState().confirmQueue).toHaveLength(0);
-    // 会话正在流式输出：删除前先中止 run，再删记录
-    expect(call).toHaveBeenCalledWith(IPC.abort, 'run-1');
     expect(call).toHaveBeenCalledWith(IPC.chatDelete, 'chat-1');
+  });
+
+  it('删除会话不影响别的会话挂着的确认请求', async () => {
+    seed('chat-1');
+    const mine = useStore.getState().askToolConfirm(ask({ chatId: 'chat-1' }));
+    const other = useStore.getState().askToolConfirm(ask({ chatId: 'chat-2' }));
+
+    await useStore.getState().deleteChat('chat-1');
+
+    await expect(mine).resolves.toEqual({ decision: 'deny', remember: false });
+    expect(useStore.getState().confirmQueue).toHaveLength(1);
+    expect(useStore.getState().confirmQueue[0].chatId).toBe('chat-2');
+
+    // 另一个仍可正常答复
+    useStore.getState().resolveConfirm(useStore.getState().confirmQueue[0].id, 'allow', false);
+    await expect(other).resolves.toEqual({ decision: 'allow', remember: false });
+  });
+
+  it('重复答复同一个 id 不会重复出队或二次兑现', async () => {
+    seed('chat-1');
+    const pending = useStore.getState().askToolConfirm(ask());
+    const id = useStore.getState().confirmQueue[0].id;
+
+    useStore.getState().resolveConfirm(id, 'allow', false);
+    useStore.getState().resolveConfirm(id, 'deny', false);
+
+    await expect(pending).resolves.toEqual({ decision: 'allow', remember: false });
   });
 });

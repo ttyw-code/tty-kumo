@@ -8,6 +8,8 @@ import {
   type AgentStreamEvent,
   type IClientChannel,
   type StartRunResult,
+  type ToolConfirmAnswer,
+  type ToolConfirmAsk,
 } from '@/common/ipc';
 import { DEFAULT_CHAT_TITLE, type ChatRecord, type ChatSummary, type StoredMessage } from '@/common/session';
 import { generateUuid } from '@/base/static/uuid';
@@ -22,6 +24,21 @@ interface StreamingState {
   runId: string | null;
   assistantId: string;
 }
+
+/** 等待用户答复的确认请求（展示用；答复句柄存在模块级的 confirmResolvers 里） */
+export interface QueuedConfirm {
+  id: string;
+  chatId: string;
+  toolName: string;
+  toolArgs: string;
+  confirmHint?: string;
+}
+
+/**
+ * requestId → resolve。放在 state 外面是因为 zustand 不该持函数，
+ * 而且弹窗只需要展示数据，不需要拿到 resolve。
+ */
+const confirmResolvers = new Map<string, (answer: ToolConfirmAnswer) => void>();
 
 interface Store {
   theme: Theme;
@@ -50,8 +67,13 @@ interface Store {
   stopStreaming: () => void;
 
   /** 等待用户答复的工具确认请求（按到达顺序展示） */
-  confirmQueue: AgentStreamEvent[];
-  resolveConfirm: (confirmId: string, decision: 'allow' | 'deny', remember: boolean) => void;
+  confirmQueue: QueuedConfirm[];
+  /**
+   * 主进程通过 `toolConfirm` 服务问过来的确认请求。
+   * 返回的 Promise 由弹窗在用户点击时兑现 —— 这就是反向请求的「响应」。
+   */
+  askToolConfirm: (ask: ToolConfirmAsk) => Promise<ToolConfirmAnswer>;
+  resolveConfirm: (id: string, decision: 'allow' | 'deny', remember: boolean) => void;
 }
 
 function nextId(): string {
@@ -214,6 +236,12 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   deleteChat: async (id) => {
+    // 该会话挂着没答复的确认请求：先按「拒绝」答复掉。
+    // 静默丢弃的话主进程会一直等到超时，白等 120 秒
+    for (const item of get().confirmQueue.filter((e) => e.chatId === id)) {
+      get().resolveConfirm(item.id, 'deny', false);
+    }
+
     const streaming = get().streamingByChat[id];
     try {
       if (streaming?.runId) await channel().call<void>(IPC.abort, streaming.runId);
@@ -262,13 +290,30 @@ export const useStore = create<Store>((set, get) => ({
   messagesByChat: {},
   streamingByChat: {},
   confirmQueue: [],
-  resolveConfirm: (confirmId, decision, remember) => {
-    set((state) => ({
-      confirmQueue: state.confirmQueue.filter((e) => e.confirmId !== confirmId),
-    }));
+  askToolConfirm: (ask) =>
+    new Promise<ToolConfirmAnswer>((resolve) => {
+      const id = nextId();
+      confirmResolvers.set(id, resolve);
+      set((state) => ({
+        confirmQueue: [
+          ...state.confirmQueue,
+          {
+            id,
+            chatId: ask.chatId,
+            toolName: ask.toolName,
+            toolArgs: ask.toolArgs,
+            confirmHint: ask.hint,
+          },
+        ],
+      }));
+    }),
+
+  resolveConfirm: (id, decision, remember) => {
+    const resolve = confirmResolvers.get(id);
+    confirmResolvers.delete(id);
+    set((state) => ({ confirmQueue: state.confirmQueue.filter((e) => e.id !== id) }));
     // 拒绝时不记住「不再询问」：否则一次误点会静默放行后续同类操作
-    const effectiveRemember = decision === 'allow' && remember;
-    window.agentBridge?.confirmTool({ confirmId, decision, remember: effectiveRemember });
+    resolve?.({ decision, remember: decision === 'allow' && remember });
   },
 
   sendMessage: async (content) => {
@@ -344,12 +389,6 @@ export const useStore = create<Store>((set, get) => ({
     const st = get().streamingByChat[evt.chatId];
     if (!st) return;
     if (st.runId !== null && st.runId !== evt.runId) return;
-
-    if (evt.kind === 'tool_confirm') {
-      if (!evt.confirmId) return;
-      set((state) => ({ confirmQueue: [...state.confirmQueue, evt] }));
-      return;
-    }
 
     if (evt.kind === 'delta') {
       if (!evt.text) return;

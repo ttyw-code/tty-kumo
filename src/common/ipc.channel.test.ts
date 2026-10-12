@@ -81,8 +81,8 @@ describe('IPCResult 信封', () => {
     }
   });
 
-  it('推送与单向通道不在 invoke 名单内，也不会被当信封解包', () => {
-    for (const cmd of [IPC.stream, IPC.toolConfirmReply]) {
+  it('推送与反向协议通道不在 invoke 名单内，也不会被当信封解包', () => {
+    for (const cmd of [IPC.stream, IPC.request, IPC.requestReply]) {
       expect(INVOKE_COMMANDS).not.toContain(cmd);
       expect(isEnvelopeCommand(cmd)).toBe(false);
     }

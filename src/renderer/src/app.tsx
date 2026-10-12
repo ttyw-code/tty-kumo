@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { IPC } from '@/common/ipc';
+import { IPC, TOOL_CONFIRM_ASK, TOOL_CONFIRM_CHANNEL, type ToolConfirmAsk } from '@/common/ipc';
 import { useStore } from '@/renderer/src/store';
 import Sidebar from '@/renderer/src/components/sidebar/index';
 import Header from '@/renderer/src/components/header/index';
@@ -27,6 +27,21 @@ const App: React.FC = () => {
       useStore.getState().handleStreamEvent(evt);
     });
     return dispose;
+  }, []);
+
+  // 反向请求：渲染端把「问用户要不要放行」这项能力注册给主进程，
+  // 主进程在危险工具执行前调用它，答复就是弹窗里那一下点击
+  useEffect(() => {
+    if (!window.ipcChannel) return;
+    const registration = window.ipcChannel.register(TOOL_CONFIRM_CHANNEL, (command, arg) => {
+      if (command !== TOOL_CONFIRM_ASK) {
+        throw new Error(`未知命令：${command}`);
+      }
+      return useStore.getState().askToolConfirm(arg as ToolConfirmAsk);
+    });
+    return () => {
+      registration?.dispose();
+    };
   }, []);
 
   useEffect(() => {

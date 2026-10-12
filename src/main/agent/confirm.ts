@@ -1,37 +1,28 @@
-import { IPC, type AgentStreamEvent, type ToolConfirmReply } from '@/common/ipc';
-import { generateUuid } from '@/base/static/uuid';
+import {
+  TOOL_CONFIRM_ASK,
+  TOOL_CONFIRM_CHANNEL,
+  type ToolConfirmAnswer,
+  type ToolConfirmAsk,
+} from '@/common/ipc';
+import type { RendererRequester, RequestTarget } from './renderer-request';
 
 /**
  * 工具确认网关。
  *
- * 主进程的工具执行在此「挂起」等待渲染端答复：
- * 主 → 渲染：走唯一的推送通道 `agent:stream`，kind = 'tool_confirm'
- * 渲染 → 主：单向 `agent:tool:confirm:reply`（ipcRenderer.send，不用 invoke）
+ * 「危险工具执行前挂起，等用户在弹窗里放行」这件事本质上是**主进程向渲染端
+ * 发起一次请求**，所以它直接建立在 RendererRequester 的 request/response 之上，
+ * 而不是自己拼一条流事件出去、再等一条单向答复通道回来。
  *
- * 安全默认：超时、窗口销毁、run 被中止，一律按「拒绝」处理。
+ * 换来的是：确认与「取消」「超时」「窗口销毁」共用一套失败语义；
+ * 将来「让用户选个文件」之类的反向询问可以复用同一条链路。
  */
+
 export const DEFAULT_CONFIRM_TIMEOUT_MS = 120_000;
-
-interface PendingConfirm {
-  resolve: (allowed: boolean) => void;
-  timer: NodeJS.Timeout;
-  runId: string;
-  toolName: string;
-}
-
-/**
- * 推送目标的最小接口（WebContents 的子集）。
- * 网关只需要「还活着吗」和「发事件」，不必依赖完整 Electron 类型。
- */
-export interface StreamTarget {
-  isDestroyed(): boolean;
-  send(channel: string, event: AgentStreamEvent): void;
-}
 
 export interface ConfirmRequest {
   runId: string;
   chatId: string;
-  wc: StreamTarget;
+  wc: RequestTarget;
   toolCallId: string;
   toolName: string;
   toolArgs: string;
@@ -41,16 +32,17 @@ export interface ConfirmRequest {
 }
 
 export class ToolConfirmGateway {
-  private readonly pending = new Map<string, PendingConfirm>();
-
   /**
    * 「本次会话不再询问」记住的工具名。仅存活于进程内存——
    * 重启必须重新询问，避免一次误勾变成永久授权。
    */
   private readonly remembered = new Set<string>();
 
+  constructor(private readonly requester: RendererRequester) {}
+
+  /** 未决请求数，供测试与诊断使用 */
   get pendingCount(): number {
-    return this.pending.size;
+    return this.requester.pendingCount;
   }
 
   isRemembered(toolName: string): boolean {
@@ -61,72 +53,46 @@ export class ToolConfirmGateway {
     this.remembered.clear();
   }
 
-  /** 请求用户放行，无异常路径：拿不到肯定答复就返回 false */
-  request(opts: ConfirmRequest): Promise<boolean> {
-    if (this.remembered.has(opts.toolName)) return Promise.resolve(true);
+  /**
+   * 请求用户放行。无异常路径：拿不到肯定答复就返回 false
+   * （超时、窗口销毁、run 被中止、渲染端未注册服务，全都算拒绝）。
+   */
+  async request(opts: ConfirmRequest): Promise<boolean> {
+    if (this.remembered.has(opts.toolName)) return true;
 
-    const confirmId = generateUuid();
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS;
-    const event: AgentStreamEvent = {
+    const ask: ToolConfirmAsk = {
       runId: opts.runId,
       chatId: opts.chatId,
-      kind: 'tool_confirm',
-      confirmId,
       toolCallId: opts.toolCallId,
       toolName: opts.toolName,
       toolArgs: opts.toolArgs,
-      confirmHint: opts.hint,
+      hint: opts.hint,
     };
 
-    return new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        this.settle(confirmId, false);
-      }, timeoutMs);
-      timer.unref?.();
-
-      this.pending.set(confirmId, { resolve, timer, runId: opts.runId, toolName: opts.toolName });
-
-      if (opts.wc.isDestroyed()) {
-        this.settle(confirmId, false);
-        return;
-      }
-      opts.wc.send(IPC.stream, event);
-    });
-  }
-
-  /** 渲染端答复。返回 false 表示 confirmId 已失效（重复回复或已超时） */
-  reply(reply: ToolConfirmReply): boolean {
-    if (!reply || typeof reply.confirmId !== 'string') return false;
-    const pending = this.pending.get(reply.confirmId);
-    if (!pending) return false;
-
-    if (reply.decision === 'allow' && reply.remember) {
-      this.remembered.add(pending.toolName);
+    try {
+      const answer = await this.requester.request<ToolConfirmAnswer>(opts.wc, {
+        channel: TOOL_CONFIRM_CHANNEL,
+        command: TOOL_CONFIRM_ASK,
+        args: ask,
+        timeoutMs: opts.timeoutMs,
+        group: opts.runId,
+      });
+      // 「不再询问」只在明确放行时生效 —— 一次误点不该变成永久授权
+      if (answer?.decision !== 'allow') return false;
+      if (answer.remember) this.remembered.add(opts.toolName);
+      return true;
+    } catch {
+      return false;
     }
-    this.settle(reply.confirmId, reply.decision === 'allow');
-    return true;
   }
 
-  /** run 被中止/清理时调用，避免承诺永久悬着 */
+  /** run 被中止或清理时调用，避免承诺永久悬着 */
   cancelRun(runId: string): void {
-    for (const [confirmId, pending] of [...this.pending.entries()]) {
-      if (pending.runId !== runId) continue;
-      this.settle(confirmId, false);
-    }
+    this.requester.cancelGroup(runId);
   }
 
   dispose(): void {
-    for (const confirmId of [...this.pending.keys()]) {
-      this.settle(confirmId, false);
-    }
+    this.requester.dispose();
     this.remembered.clear();
-  }
-
-  private settle(confirmId: string, allowed: boolean): void {
-    const pending = this.pending.get(confirmId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.pending.delete(confirmId);
-    pending.resolve(allowed);
   }
 }

@@ -6,9 +6,8 @@
 
 ## 不改的架构不变式
 
-- **单推送通道**：主 → 渲染仍然只走 `agent:stream`，确认请求是新增的 `tool_confirm` kind，不开第二条推送通道。
-- **新能力开新通道**：渲染 → 主的答复走 `agent:tool:confirm:reply`（`ipcRenderer.send` 单向，不用 invoke，避免句柄悬挂）。
-- **事件永远带 runId + chatId**，确认回复额外带 `confirmId`。
+- **确认走反向请求，不借推送通道搭车**（2026-10-12 改）。确认请求最初是 `agent:stream` 上的一种 `tool_confirm` kind，答复走 `agent:tool:confirm:reply` 单向发回 —— 那其实是把一次请求-响应硬拆成两条单向消息。现已改为 `RendererRequester` 的 request/response（`agent:request` / `agent:request:reply`），渲染端通过 `IClientChannel.register('toolConfirm', ...)` 提供这项能力。协议见 `docs/specs/ipc-channel.md`。
+- **事件永远带 runId + chatId**；反向请求的关联靠协议层的 id。
 - **`risk` 不外发给模型**：`toOpenAITool()` 只向 LLM 暴露 name/description/parameters。
 
 ## 三层防护

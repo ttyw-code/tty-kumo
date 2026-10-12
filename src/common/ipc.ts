@@ -1,7 +1,15 @@
 import type { CancellationToken } from '@/base/cancellation';
 import type { Event } from '@/base/event';
+import type { IDisposable } from '@/base/lifecycle';
 
-export type AgentStreamKind = 'delta' | 'tool' | 'tool_confirm' | 'done' | 'aborted' | 'error';
+/**
+ * agent 流的单向事件种类。
+ *
+ * `tool_confirm` 曾经也挤在这里，但它的语义不是「流上发生了什么事」，
+ * 而是「主进程要问渲染端一个问题并等答复」—— 已改用下面的
+ * request/response 协议，不再借推送通道搭车。
+ */
+export type AgentStreamKind = 'delta' | 'tool' | 'done' | 'aborted' | 'error';
 
 export type AgentErrorCode =
   | 'no_config'
@@ -21,10 +29,6 @@ export interface AgentStreamEvent {
   toolName?: string;
   toolArgs?: string;
   toolResult?: string;
-  /** tool_confirm 事件的确认标识，渲染端回复时原样带回 */
-  confirmId?: string;
-  /** tool_confirm 事件上展示的后果说明 */
-  confirmHint?: string;
   code?: AgentErrorCode;
   message?: string;
   usage?: { inputTokens: number; outputTokens: number };
@@ -63,9 +67,22 @@ export interface AgentConfig {
   mock?: boolean;
 }
 
-/** 渲染端对 tool_confirm 的答复（经 agent:tool:confirm:reply 单向上报） */
-export interface ToolConfirmReply {
-  confirmId: string;
+/**
+ * 主进程向渲染端发起的工具确认请求（`toolConfirm` 通道的 `ask` 命令）。
+ * 是否记住「不再询问」由答复里的 `remember` 表达，不需要额外的 confirmId ——
+ * 请求-响应的关联交给协议层的 `id` 管。
+ */
+export interface ToolConfirmAsk {
+  runId: string;
+  chatId: string;
+  toolCallId: string;
+  toolName: string;
+  toolArgs: string;
+  /** 弹窗上展示的后果说明 */
+  hint?: string;
+}
+
+export interface ToolConfirmAnswer {
   decision: 'allow' | 'deny';
   /** allow 时是否记住「本次会话不再询问该工具」 */
   remember: boolean;
@@ -77,7 +94,6 @@ export const IPC = {
   stream: 'agent:stream',
   configGet: 'agent:config:get',
   configSet: 'agent:config:set',
-  toolConfirmReply: 'agent:tool:confirm:reply',
   chatList: 'agent:chat:list',
   chatLoad: 'agent:chat:load',
   chatCreate: 'agent:chat:create',
@@ -87,6 +103,9 @@ export const IPC = {
   appQuit: 'app:quit',
   appWindowMinimize: 'app:window:minimize',
   appWindowClose: 'app:window:close',
+  // 反向（主 → 渲染）请求-响应的两条协议消息，由 preload 内部处理
+  request: 'agent:request',
+  requestReply: 'agent:request:reply',
 } as const;
 
 export type IPCChannelName = (typeof IPC)[keyof typeof IPC];
@@ -117,11 +136,59 @@ export interface IServerChannel<TContext> {
   listen<T>(ctx: TContext, event: string, arg?: any): Event<T>;
 }
 
-/** 客户端（渲染端）通道：与服务端配对的另一半 */
+/**
+ * 客户端（渲染端）通道。
+ *
+ * 前两个方法是渲染端**主动**使用主进程的能力；`register` 反过来 ——
+ * 渲染端**提供**一项能力、等主进程来调。后者是「主进程需要问用户」
+ * 这类场景（工具确认、将来的文件选择、删除确认）的基础。
+ */
 export interface IClientChannel {
   call<T>(command: string, arg?: any, cancellationToken?: CancellationToken): Promise<T>;
   listen<T>(event: string, arg?: any): Event<T>;
+  /**
+   * 注册一项供主进程调用的能力。`name` 必须在 `RENDERER_CHANNELS` 白名单内。
+   * 同名重复注册会覆盖（页面重载后重新注册即可，无需手动注销）。
+   */
+  register(name: string, handler: RendererChannelHandler): IDisposable;
 }
+
+/** 渲染端提供的能力：收一个命令 + 参数，返回结果（可以是 Promise） */
+export type RendererChannelHandler = (
+  command: string,
+  arg?: unknown,
+) => unknown | Promise<unknown>;
+
+/* ------------------------------------------------------------------ *
+ * 反向请求协议（主 → 渲染）
+ *
+ * Electron 没有「主进程 invoke 渲染进程」的机制 —— `webContents.send` 只能
+ * 单向推。要做 request/response 就得自己配 id 关联：
+ *
+ *   主 → 渲染   agent:request         { id, channel, command, args }
+ *   渲染 → 主   agent:request:reply   { id, ok, value | error }
+ *
+ * 渲染端启动时用 `IClientChannel.register` 注册能力，主进程按名字调用。
+ * 超时、窗口销毁、明确取消一律按失败处理（fail-closed）。
+ *
+ * 这两条通道由 preload 内部处理，不出现在对外白名单里。
+ * ------------------------------------------------------------------ */
+
+export interface RendererRequestMessage {
+  id: string;
+  /** 渲染端注册的服务名，须在 `RENDERER_CHANNELS` 内 */
+  channel: string;
+  command: string;
+  args?: unknown;
+}
+
+export type RendererRequestReply =
+  | { id: string; ok: true; value?: unknown }
+  | { id: string; ok: false; error: IPCError };
+
+/** 工具确认所用的服务名与命令 */
+export const TOOL_CONFIRM_CHANNEL = 'toolConfirm';
+export const TOOL_CONFIRM_ASK = 'ask';
 
 /* ------------------------------------------------------------------ *
  * 客户端可访问面（白名单）
@@ -158,10 +225,21 @@ export const INVOKE_COMMANDS: readonly string[] = [
 export const EVENT_CHANNELS: readonly string[] = [IPC.stream];
 
 /**
- * 单向 fire-and-forget（ipcRenderer.send 型）。
- * 语义上不是请求-响应，因此不纳入 call/listen，仍由具名方法暴露。
+ * 由 preload 内部处理的协议通道，不对外开放。
+ *
+ * 渲染端参与反向请求靠的是 `IClientChannel.register`，不需要（也不应该）
+ * 直接触碰这两条消息通道 —— 放出去只会多一个可被滥用的入口。
  */
-export const ONE_WAY_COMMANDS: readonly string[] = [IPC.toolConfirmReply];
+export const INTERNAL_CHANNELS: readonly string[] = [IPC.request, IPC.requestReply];
+
+/**
+ * 渲染端可注册的服务名白名单。
+ *
+ * 与 `INVOKE_COMMANDS` 对称：那边限制「渲染端能调主进程什么」，
+ * 这边限制「渲染端能提供什么给主进程调」。主进程按名字找服务，
+ * 名字必须来自这份名单，避免渲染端注册一个同名服务去劫持主进程的预期。
+ */
+export const RENDERER_CHANNELS: readonly string[] = [TOOL_CONFIRM_CHANNEL];
 
 /* ------------------------------------------------------------------ *
  * 跨进程错误

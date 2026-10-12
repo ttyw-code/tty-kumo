@@ -2,7 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { ENVELOPE_COMMANDS, EVENT_CHANNELS, INVOKE_COMMANDS, IPC, ONE_WAY_COMMANDS } from './ipc';
+import {
+  ENVELOPE_COMMANDS,
+  EVENT_CHANNELS,
+  INTERNAL_CHANNELS,
+  INVOKE_COMMANDS,
+  IPC,
+  RENDERER_CHANNELS,
+  TOOL_CONFIRM_CHANNEL,
+} from './ipc';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -17,26 +25,30 @@ describe('IPC 通道表', () => {
   const allChannels: string[] = Object.values(IPC);
 
   it('白名单里的命令都在 IPC 常量里真实存在', () => {
-    for (const cmd of [...INVOKE_COMMANDS, ...EVENT_CHANNELS, ...ONE_WAY_COMMANDS]) {
-      expect(allChannels, `通道表中不存在的命令：${cmd}`).toContain(cmd);
+    const lists = [...Object.values({ INVOKE_COMMANDS, EVENT_CHANNELS, INTERNAL_CHANNELS }), ENVELOPE_COMMANDS];
+    for (const list of lists) {
+      for (const cmd of list) {
+        expect(allChannels, `通道表中不存在的命令：${cmd}`).toContain(cmd);
+      }
     }
   });
 
   it('每个通道都被归类，不留孤儿', () => {
-    const classified = new Set([...INVOKE_COMMANDS, ...EVENT_CHANNELS, ...ONE_WAY_COMMANDS]);
+    const classified = new Set([...INVOKE_COMMANDS, ...EVENT_CHANNELS, ...INTERNAL_CHANNELS]);
     const orphans = allChannels.filter((c) => !classified.has(c));
-    expect(orphans, '新增通道后忘了归入 INVOKE_COMMANDS / EVENT_CHANNELS / ONE_WAY_COMMANDS').toEqual(
-      [],
-    );
+    expect(
+      orphans,
+      '新增通道后忘了归入 INVOKE_COMMANDS / EVENT_CHANNELS / INTERNAL_CHANNELS',
+    ).toEqual([]);
   });
 
-  it('三类互不重叠，且合起来正好覆盖全部通道', () => {
-    const merged = [...INVOKE_COMMANDS, ...EVENT_CHANNELS, ...ONE_WAY_COMMANDS];
+  it('各类互不重叠，且合起来正好覆盖全部通道', () => {
+    const merged = [...INVOKE_COMMANDS, ...EVENT_CHANNELS, ...INTERNAL_CHANNELS];
     expect(new Set(merged).size).toBe(merged.length);
     expect(merged.length).toBe(allChannels.length);
   });
 
-  it('通道名统一使用 agent: 前缀', () => {
+  it('通道名使用 agent: 或 app: 前缀', () => {
     for (const channel of allChannels) {
       expect(/^(agent|app):/.test(channel), `通道名不符合约定：${channel}`).toBe(true);
     }
@@ -44,6 +56,21 @@ describe('IPC 通道表', () => {
 
   it('全部 invoke 通道都已迁到 IPCResult 信封', () => {
     expect([...ENVELOPE_COMMANDS].sort()).toEqual([...INVOKE_COMMANDS].sort());
+  });
+
+  it('反向请求的两条协议通道不外放给渲染端主动调用', () => {
+    for (const cmd of [IPC.request, IPC.requestReply]) {
+      expect(INVOKE_COMMANDS).not.toContain(cmd);
+      expect(EVENT_CHANNELS).not.toContain(cmd);
+      expect(INTERNAL_CHANNELS).toContain(cmd);
+    }
+  });
+
+  it('渲染端可注册的服务名非空，且包含工具确认', () => {
+    expect(RENDERER_CHANNELS.length).toBeGreaterThan(0);
+    expect(RENDERER_CHANNELS).toContain(TOOL_CONFIRM_CHANNEL);
+    // 服务名是 channel 抽象里的名字，不该和 Electron 通道名混用
+    expect(allChannels).not.toContain(TOOL_CONFIRM_CHANNEL);
   });
 
   it('preload 不再硬编码任何通道字符串', () => {
