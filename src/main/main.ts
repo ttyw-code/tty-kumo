@@ -8,7 +8,7 @@ import { launchWorker } from '@/main/database/worker-launcher';
 import { DBPersister } from '@/main/database/persister';
 import type { IDBPersister } from '@/main/database/types';
 import { createTray } from '@/main/tray';
-import { registerAgentIpc } from '@/main/agent/ipc';
+import { registerAgentIpc, type AgentIpcHandle } from '@/main/agent/ipc';
 import { AgentConfigStore } from '@/main/agent/config';
 import { OpenAIProvider } from '@/main/agent/llm/openai';
 import { MockProvider } from '@/main/agent/llm/mock';
@@ -23,12 +23,11 @@ import { configureSandboxRoots } from '@/main/agent/tools/guard';
 import { createCalendarTools } from '@/main/agent/tools/calendar';
 import { abortAllRuns } from '@/main/agent/run';
 import { SessionStore } from '@/main/agent/session';
-import type { ToolConfirmGateway } from '@/main/agent/confirm';
 
 class Application {
   private mainWindow: BrowserWindow | null = null;
   private db: IDBPersister | null = null;
-  private confirmGateway: ToolConfirmGateway | null = null;
+  private agentIpc: AgentIpcHandle | null = null;
 
   start(): void {
     if (!app.requestSingleInstanceLock()) {
@@ -48,7 +47,7 @@ class Application {
   private registerListeners(): void {
     app.on('will-quit', () => {
       abortAllRuns();
-      this.confirmGateway?.dispose();
+      this.agentIpc?.gateway.dispose();
     });
 
     app.on('second-instance', () => {
@@ -114,7 +113,7 @@ class Application {
       tools.register(webSearchTool);
       for (const tool of createDbTools(this.db)) tools.register(tool);
       for (const tool of createCalendarTools(this.db)) tools.register(tool);
-      this.confirmGateway = registerAgentIpc({
+      this.agentIpc = registerAgentIpc({
         configStore: new AgentConfigStore(this.db),
         createProvider: () => (process.env.TTY_MOCK === '1' ? new MockProvider() : new OpenAIProvider()),
         tools,
@@ -180,6 +179,22 @@ class Application {
 
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+
+    // 反向请求（主进程 → 渲染端）要跟着页面生命周期走，两种「页面消失」必须分开：
+    //   重载（Ctrl+R、渲染进程崩溃恢复）→ 页面会回来，挂起并续传，弹窗重新出现
+    //   销毁                          → 不会回来了，立即结算，别白等到超时
+    const wc = win.webContents;
+    wc.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      // 页内跳转（hash 变化等）不涉及重新加载，不该影响未决请求
+      if (!isMainFrame || isInPlace) return;
+      this.agentIpc?.requester.suspendTarget(wc);
+    });
+    wc.on('did-finish-load', () => {
+      this.agentIpc?.requester.resumeTarget(wc);
+    });
+    wc.once('destroyed', () => {
+      this.agentIpc?.requester.cancelTarget(wc);
+    });
 
     const devUrl = process.env.VITE_DEV_SERVER_URL;
     if (devUrl) {

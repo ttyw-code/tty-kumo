@@ -173,3 +173,36 @@ describe('工具确认网关（反向请求）', () => {
     expect(gateway.isRemembered('write_file')).toBe(false);
   });
 });
+
+describe('工具确认遇到页面重载', () => {
+  it('重载后请求续传，用户仍能在新页面上放行', async () => {
+    const target = createTarget();
+    const pending = gateway.request(askRequest({ wc: target }));
+    expect(target.sent).toHaveLength(1);
+
+    // 页面开始重载 → 停表等待；新页面加载完成 → 把请求重发过去
+    requester.suspendTarget(target);
+    expect(requester.resumeTarget(target)).toBe(1);
+    expect(target.sent).toHaveLength(2);
+    expect(target.sent[1].id).toBe(target.sent[0].id);
+
+    // 用户在新页面弹出来的确认框上点了放行
+    requester.reply({
+      id: target.sent[1].id,
+      ok: true,
+      value: { decision: 'allow', remember: false },
+    });
+
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('窗口销毁时立即按拒绝结算，不让 run 白等超时', async () => {
+    const target = createTarget();
+    const pending = gateway.request(askRequest({ wc: target }));
+
+    requester.cancelTarget(target);
+
+    await expect(pending).resolves.toBe(false);
+    expect(requester.pendingCount).toBe(0);
+  });
+});

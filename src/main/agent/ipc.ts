@@ -26,12 +26,22 @@ import type { ISessionStore } from './session';
 import { toLLMMessages } from './history';
 import { generateUuid } from '@/base/static/uuid';
 
+export interface AgentIpcHandle {
+  /** 工具确认网关：窗口销毁 / 进程退出时 dispose */
+  gateway: ToolConfirmGateway;
+  /**
+   * 反向请求器。之所以要交出去，是因为它必须跟着窗口生命周期走 ——
+   * 页面重载要挂起与续传，窗口销毁要立即结算（见 renderer-request.ts）
+   */
+  requester: RendererRequester;
+}
+
 export function registerAgentIpc(deps: {
   configStore: AgentConfigStore;
   createProvider: () => ChatProvider;
   tools: ToolRegistry;
   sessions: ISessionStore;
-}): ToolConfirmGateway {
+}): AgentIpcHandle {
   const provider = deps.createProvider();
   const needsConfig = provider.requiresConfig !== false;
   // 反向请求器：主进程 → 渲染端。工具确认是它的第一个使用者
@@ -219,5 +229,5 @@ export function registerAgentIpc(deps: {
       }),
   );
 
-  return gateway;
+  return { gateway, requester };
 }
