@@ -28,10 +28,10 @@ const Message: React.FC = () => {
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] rounded-xl px-3 py-2 whitespace-pre-wrap break-words text-sm ${
+                className={`max-w-[80%] rounded-xl px-3 py-2 whitespace-pre-wrap wrap-break-word text-sm ${
                   msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-content2 text-foreground'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'bg-surface-secondary text-foreground'
                 }`}
               >
                 {msg.content ||
@@ -50,13 +50,13 @@ const Message: React.FC = () => {
                     {msg.toolCalls.map((tc) => (
                       <div
                         key={tc.id}
-                        className="text-xs text-muted bg-content1 rounded-md px-2 py-1"
+                        className="text-xs text-muted bg-surface rounded-md px-2 py-1"
                       >
                         调用工具 {tc.name}({tc.args || '{}'})
                         {tc.result !== undefined ? (
                           <div className="mt-0.5 truncate">结果: {tc.result}</div>
                         ) : (
-                          <span className="inline-block w-1.5 h-1.5 ml-1 rounded-full bg-primary animate-pulse" />
+                          <span className="inline-block w-1.5 h-1.5 ml-1 rounded-full bg-accent animate-pulse" />
                         )}
                       </div>
                     ))}

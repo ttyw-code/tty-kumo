@@ -40,7 +40,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ open, onOpenChange }) => {
   };
 
   const inputCls =
-    'w-full rounded-lg bg-content2 text-foreground text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-primary';
+    'w-full rounded-lg bg-surface-secondary text-foreground text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-accent';
 
   return (
     <Modal.Root state={state}>

@@ -47,7 +47,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       <button
         onClick={handleSend}
         disabled={!content.trim() || disabled}
-        className="p-2.5 rounded-xl bg-primary text-white hover:opacity-80 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+        className="p-2.5 rounded-xl bg-accent text-accent-foreground hover:opacity-80 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
       >
         <Send size={18} />
       </button>
