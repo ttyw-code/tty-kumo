@@ -1,0 +1,25 @@
+# 统一按 LF 存储与检出。
+#
+# 本仓库历史全是 LF，而 core.autocrlf 是 false、此前也没有这个文件 —— 于是任何
+# 在 Windows 上写入的工具（编辑器、脚本、AI 改写）一旦写出 CRLF，git diff 就会
+# 显示「只改了两行，整个文件都变了」。已经踩过两次（main.ts / package.json）。
+#
+# text=auto 让 Git 自行识别文本文件并规范化；eol=lf 保证检出也是 LF，
+# 工作区与仓库不再分叉。
+* text=auto eol=lf
+
+# 二进制资源别做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.exe binary
+*.dll binary
+*.msi binary
+*.pak binary
+*.bin binary

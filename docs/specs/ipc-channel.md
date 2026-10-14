@@ -158,7 +158,28 @@ Error invoking remote method 'agent:chat:load': Error: 会话不存在或已被�
 
 1. ~~渲染端重载后反向请求失联~~ → **已修**（挂起 + 续传 + 待投队列，见上面「页面重载怎么办」）。
 2. **preload 的白名单检查、请求分发与待投队列没有自动化测试**（依赖 `ipcRenderer`，vitest 里跑不了）。目前靠 `common/ipc.test.ts` 校验名单数据自洽；协议逻辑本身由 `renderer-request.test.ts` 覆盖（19 个用例，含挂起/续传/作废）。
-3. **主进程产物含共享 chunk**：`common/ipc.ts` 被 main 与 preload 共享，rollup 会抽出 `out/src/main/chunk-ipc.cjs`。
-   - `chunkFileNames` 已固定为 `chunk-[name].cjs`。**改回默认的内容 hash 命名会出事**：`emptyOutDir: false` 下每次内容变化都留一个新 hash 文件且永不清理，而 `electron-builder.yml` 用 `out/**/*` glob —— 死 chunk 会被一起打进安装包。
-   - 若将来把打包清单改成显式列文件，**务必带上 chunk**。
-4. **`app:*` 已纳入，前缀约定放宽为 `agent:` 或 `app:`**。
+3. **`app:*` 已纳入，前缀约定放宽为 `agent:` 或 `app:`**。
+
+## ⚠️ 构建约束：preload 必须单独构建
+
+**Electron 的 sandbox preload 不能 require 相对文件。**
+
+`common/ipc.ts` 被 main 与 preload 同时引用，rollup 在多入口下会把它抽成公共 chunk，preload 于是写出 `require('./chunk-ipc.cjs')`，沙箱里直接：
+
+```
+Unable to load preload script: ...\out\src\main\preload.cjs
+Error: module not found: ./chunk-ipc.cjs
+```
+
+整个 preload 加载失败 → `window.ipcChannel` / `window.agentBridge` 全部消失 → 渲染端拿不到 IPC 通道就一律 `return`，表现为**「点 New Chat 没反应」**（这个坑真踩过一次，2026-10-14 修）。
+
+所以 `vite.main.config.ts` 按 `--mode` 分两轮构建，preload 走**单入口**（rollup 不做代码分割，产物自包含）：
+
+```bash
+vite build --config vite.main.config.ts --mode main      # main + worker
+vite build --config vite.main.config.ts --mode preload   # preload，自包含
+```
+
+`src/main/build-config.test.ts` 守着这条：`build:main` / `dev:main` 必须带 `--mode preload`、配置里必须有 `preloadOnly` 分支、产物里不得出现相对 require。
+
+另外，`chunkFileNames` 固定为 `chunk-[name].cjs` —— 默认的内容 hash 命名配合 `emptyOutDir: false` 会不断累积死文件，而打包用的是 `out/**/*` glob（死 chunk 会一起进安装包）；若把打包清单改成显式列文件，**务必带上 chunk**。

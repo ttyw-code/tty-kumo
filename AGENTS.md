@@ -43,6 +43,12 @@ src/
 - `build-esbuild.js` is legacy — actual builds use Vite
 - `package.json` has `"type": "module"` but main process entries are CJS
 
+### ⚠️ preload 必须单独构建（踩过的坑）
+
+**sandbox preload 不能 require 相对文件**。`common/ipc.ts` 被 main 与 preload 共享时，rollup 会把共享模块抽成公共 chunk，preload 写出 `require('./chunk-ipc.cjs')` → 沙箱里 `module not found` → 整个 preload 加载失败 → `window.ipcChannel` 全没了 → **「点 New Chat 没反应」**。
+
+因此 `vite.main.config.ts` 按 `--mode` 分两轮：`--mode main`（main + worker）与 `--mode preload`（单入口，自包含）。`build:main` / `dev:main` 都已按此拆分。`src/main/build-config.test.ts` 守着这条，改构建脚本前先看它。
+
 ## Dev workflow gotchas
 
 - `wait-on` blocks until `out/src/main/main.cjs`, `out/src/main/preload.cjs`, AND `tcp:127.0.0.1:5175` are ready

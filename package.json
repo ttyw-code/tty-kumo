@@ -5,11 +5,11 @@
   "main": "./out/src/main/main.cjs",
   "type": "module",
   "scripts": {
-    "build:main": "vite build --config vite.main.config.ts",
+    "build:main": "vite build --config vite.main.config.ts --mode main && vite build --config vite.main.config.ts --mode preload",
     "build:renderer": "vite build",
     "build": "yarn build:main && yarn build:renderer",
     "start": "yarn build && electron .",
-    "dev:main": "vite build --config vite.main.config.ts --watch",
+    "dev:main": "concurrently -k \"vite build --config vite.main.config.ts --mode main --watch\" \"vite build --config vite.main.config.ts --mode preload --watch\"",
     "dev:renderer": "vite",
     "dev:electron": "wait-on file:out/src/main/main.cjs file:out/src/main/preload.cjs tcp:127.0.0.1:5175 && nodemon --watch out/src/main --ext cjs --exec \"cross-env NODE_NO_WARNINGS=1 TTY_MOCK=1 VITE_DEV_SERVER_URL=http://localhost:5175 electron .\"",
     "dev": "concurrently -k \"cross-env NODE_NO_WARNINGS=1 yarn dev:main\" \"cross-env NODE_NO_WARNINGS=1 yarn dev:renderer -- --logLevel error\" \"yarn dev:electron\"",
